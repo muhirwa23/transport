@@ -151,3 +151,54 @@ st.markdown("""
 **Developed by Kigali City Transport Team**  
 *For optimal travel routes and live traffic updates*
 """)
+import streamlit as st
+import pandas as pd
+import numpy as np
+from bokeh.plotting import figure
+from bokeh.models import HoverTool
+
+# --- Dummy Traffic Data ---
+np.random.seed(42)
+time_range = pd.date_range(start='2024-10-24', periods=100, freq='T')
+traffic_data = pd.DataFrame({
+    'timestamp': time_range,
+    'vehicle_count': np.random.randint(20, 100, size=100),
+    'travel_time': np.random.uniform(5, 25, size=100)
+})
+
+# --- Bokeh Chart Function ---
+def bokeh_congestion_chart(data):
+    # Create the Bokeh figure
+    p = figure(
+        x_axis_type="datetime", 
+        title="Congestion Analysis", 
+        plot_width=800, 
+        plot_height=400
+    )
+
+    # Add line plot for vehicle count
+    p.line(data['timestamp'], data['vehicle_count'], line_width=2, legend_label="Vehicle Count", color="navy")
+
+    # Configure Hover Tool for interactivity
+    hover = HoverTool(
+        tooltips=[("Time", "@x{%F %T}"), ("Vehicles", "$y")],
+        formatters={"@x": "datetime"}
+    )
+    p.add_tools(hover)
+
+    # Style the plot
+    p.xaxis.axis_label = "Timestamp"
+    p.yaxis.axis_label = "Vehicle Count"
+    p.legend.location = "top_left"
+    
+    return p
+
+# --- Streamlit App ---
+st.title("Kigali Traffic Congestion Dashboard")
+st.write("Real-time congestion data and analysis for Kigali City.")
+
+# Render the Bokeh chart in Streamlit
+try:
+    st.bokeh_chart(bokeh_congestion_chart(traffic_data), use_container_width=True)
+except Exception as e:
+    st.error(f"Error rendering Bokeh chart: {e}")
