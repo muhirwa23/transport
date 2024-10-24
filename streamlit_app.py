@@ -4,7 +4,6 @@ import plotly.express as px
 import requests
 from datetime import datetime, timedelta
 import numpy as np
-from tensorflow.keras.models import load_model
 
 # Weather API key for Kigali (replace with your OpenWeatherMap API key)
 WEATHER_API_KEY = 'c80a258e17ec49ad85a101108242410'
@@ -51,6 +50,14 @@ def suggest_alternative_route(routes, traffic_data):
     else:
         st.write("No heavy traffic detected. All routes are running smoothly.")
 
+# Simulate demand prediction (without model)
+def simulate_demand_prediction(data):
+    # Assuming we want to simulate a future passenger demand curve over the next 10 time units
+    future_time_units = np.arange(10)
+    # Simulated random demand (increasing for demonstration purposes)
+    demand_forecast = np.cumsum(np.random.randint(10, 100, size=10))
+    return future_time_units, demand_forecast
+
 # Main App Layout
 st.set_page_config(layout="wide", page_title="Kigali Public Transport Optimization Dashboard")
 
@@ -76,22 +83,19 @@ tabs = st.tabs(["Demand Prediction", "Traffic Rerouting", "Real-time Dashboard",
 with tabs[0]:
     st.title("Demand Prediction")
     
-    # Load pretrained LSTM model for demand prediction (mock model for demo)
-    model = load_model('lstm_demand_model.h5')  # Replace with actual model path
-    
     if uploaded_file is not None:
         st.write("### Historical Data")
         st.dataframe(data.head())
         
-        def preprocess_data(data):
-            # Perform data preprocessing (e.g., scaling, reshaping)
-            return data
+        # Simulate demand prediction (since no model is used)
+        future_time, demand_forecast = simulate_demand_prediction(data)
         
-        processed_data = preprocess_data(data)
-        predictions = model.predict(processed_data)  # Apply the LSTM model for demand prediction
-        
-        st.write("### Passenger Demand Forecast")
-        st.line_chart(predictions)
+        st.write("### Simulated Passenger Demand Forecast")
+        demand_df = pd.DataFrame({
+            'Time Units': future_time,
+            'Predicted Demand': demand_forecast
+        })
+        st.line_chart(demand_df.set_index('Time Units'))
     else:
         st.write("Upload historical data to predict demand.")
 
