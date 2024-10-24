@@ -1,5 +1,23 @@
+# Streamlit for the app framework
 streamlit==1.25.0
-plotly==5.6.0
-googlemaps==4.4.5
-tensorflow==2.12.0
+
+# Pandas for data manipulation
+pandas==2.1.1
+
+# Plotly for map visualization
+plotly==5.15.0
+
+# Requests for making API calls to OpenWeatherMap
 requests==2.31.0
+
+# Numpy for numerical operations
+numpy==1.25.2
+
+# TensorFlow/Keras for loading the LSTM model
+tensorflow==2.14.0
+
+# h5py for loading the model in HDF5 format
+h5py==3.9.0
+
+# Optional: If you need caching for demand prediction
+cachetools==5.3.0
