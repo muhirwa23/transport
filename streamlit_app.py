@@ -1,172 +1,112 @@
-# Import necessary libraries
-import pandas as pd
 import streamlit as st
-import plotly.express as px
+import pandas as pd
+from io import StringIO
 import altair as alt
-from bokeh.plotting import figure
-from pygal.style import Style
-import pygal
+import plotly.express as px
+import bokeh.plotting as bk
 import geopandas as gpd
+from bokeh.models import HoverTool
 import numpy as np
-import time
-from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import LSTM, Dense, Dropout
+import requests
 
-# Set Page Configuration for Streamlit
+# --- SETTING PAGE CONFIG ---
 st.set_page_config(
-    page_title="Kigali Traffic Optimization Dashboard",
+    page_title="Kigali Traffic Optimization",
     layout="wide",
-    page_icon="🚦",
-    initial_sidebar_state="expanded",
+    initial_sidebar_state="expanded"
 )
 
-# Styling the Dashboard with CSS
-st.markdown("""
-    <style>
-        .main { background-color: #f0f2f6; }
-        h1, h2, h3 { color: #013220; }
-        .sidebar .sidebar-content { background-color: #003f5c; color: white; }
-        .stButton button { background-color: #28a745; color: white; border-radius: 10px; }
-        iframe { border-radius: 10px; border: 2px solid #013220; }
-    </style>
-""", unsafe_allow_html=True)
-
-# Sidebar: Route Selection
-st.sidebar.title("📍 Select Routes")
-st.sidebar.markdown("Filter the routes you want to monitor:")
+# --- SAMPLE ROUTE DATA ---
+route_data = """
+route_id,agency_id,route_short_name,route_long_name,route_type,route_desc
+101,1,101,KBS - Zone I - 101,3,Remera Taxi Park-Sonatubes-Rwandex-CBD
+102,1,102,KBS - Zone I - 102,3,Kabuga-Mulindi-Remera-Sonatubes-Rwandex Nyabugogo Taxi Park
+103,1,103,KBS - Zone I - 103,3,Rubilizi-Kabeza-Remera-Sonatubes-Rwandex-CBD
+104,1,104,KBS - Zone I - 104,3,Kibaya-Kanombe MH-Airport-Remera-Sonatubes-Rwandex-CBD
+105,1,105,KBS - Zone I - 105,3,Remera Taxi Park-Chez Lando-Kacyiru-NyabugogoTaxi Park
+"""
 
 @st.cache_data
 def load_route_data():
-    """Load Kigali city route data."""
-    data = """
-    route_id,agency_id,route_short_name,route_long_name,route_type,route_desc
-    101,1,101,KBS - Zone I - 101,3,Remera Taxi Park-Sonatubes-Rwandex-CBD
-    102,1,102,KBS - Zone I - 102,3,Kabuga-Mulindi-Remera-Sonatubes-Rwandex Nyabugogo Taxi Park
-    201,2,201,ROYAL - Zone II - 201,3,St. Joseph – Kikukiro Centre de Santé – Sonatubes – Rwandex - CBD
-    301,3,301,RFTC - Zone III and IV - 301,3,Kinyinya - Nyarutarama - RDB - Kimihurura - Down Town Taxi Park
-    401,3,401,RFTC - Zone III and IV - 401,3,Nyamirambo (Ryanyuma) - Rafiki - Camp Kigali - CBD
-    """
-    return pd.read_csv(pd.compat.StringIO(data))
+    return pd.read_csv(StringIO(route_data))
 
-# Load and display route data
+# --- LOAD ROUTES DATA ---
 routes_df = load_route_data()
-selected_routes = st.sidebar.multiselect(
-    "Choose Routes to Monitor:",
-    options=routes_df['route_long_name'],
-    default=routes_df['route_long_name']
-)
 
-# Header
-st.title("🚦 Kigali Traffic Optimization Dashboard")
-st.subheader("Monitor traffic, predict congestion, and optimize routes in real-time")
+# --- DISPLAY ROUTE TABLE ---
+st.title("Kigali Traffic Optimization System")
+st.subheader("Available Routes")
+st.dataframe(routes_df, use_container_width=True)
 
-# Altair: Real-Time Congestion Chart
-st.markdown("### 📈 Real-Time Congestion Monitoring (Altair)")
+# --- WAZE LIVE MAP EMBED ---
+st.markdown("""
+## Live Traffic Map
+<iframe src="https://embed.waze.com/iframe?zoom=12&lat=-1.934712&lon=29.974184&ct=livemap" 
+width="100%" height="450" allowfullscreen></iframe>
+""", unsafe_allow_html=True)
 
-def generate_altair_chart():
-    congestion_data = pd.DataFrame({
-        'time': pd.date_range(start='2024-10-24', periods=100, freq='T'),
-        'congestion_level': np.random.randint(0, 3, 100)
-    })
-    chart = alt.Chart(congestion_data).mark_line().encode(
-        x='time:T',
-        y='congestion_level:Q'
-    ).properties(
-        title='Congestion Levels Over Time',
-        width=800,
-        height=400
-    )
-    st.altair_chart(chart)
+# --- DUMMY SIMULATION DATA ---
+np.random.seed(42)
+time_range = pd.date_range(start='2024-10-24', periods=100, freq='T')
+traffic_data = pd.DataFrame({
+    'timestamp': time_range,
+    'vehicle_count': np.random.randint(20, 100, size=100),
+    'travel_time': np.random.uniform(5, 25, size=100)
+})
 
-generate_altair_chart()
+# --- ALTAR CHART FOR TIME SERIES VEHICLE COUNTS ---
+def altair_vehicle_chart(data):
+    chart = alt.Chart(data).mark_line().encode(
+        x='timestamp:T',
+        y='vehicle_count:Q',
+        tooltip=['timestamp:T', 'vehicle_count:Q']
+    ).properties(title='Vehicle Count Over Time')
+    return chart
 
-# Bokeh: Traffic Forecast Visualization
-st.markdown("### 📊 Traffic Forecast Visualization (Bokeh)")
+st.altair_chart(altair_vehicle_chart(traffic_data), use_container_width=True)
 
-def generate_bokeh_chart():
-    p = figure(
-        title="Traffic Congestion Forecast",
-        x_axis_label='Time (in seconds)',
-        y_axis_label='Congestion Level',
-        plot_width=800,
-        plot_height=400
-    )
-    congestion_levels = np.random.randint(0, 3, 50)
-    p.line(range(50), congestion_levels, legend_label='Congestion', line_width=2)
-    st.bokeh_chart(p)
-
-generate_bokeh_chart()
-
-# Pygal: Route Speeds Chart
-st.markdown("### 🚍 Route Speeds (Pygal)")
-
-def generate_pygal_chart():
-    bar_chart = pygal.Bar(style=Style(colors=('#3498db', '#e74c3c')))
-    bar_chart.title = 'Average Speeds on Selected Routes'
-    for route in selected_routes:
-        avg_speed = np.random.randint(10, 50)
-        bar_chart.add(route, avg_speed)
-    st.write(bar_chart.render_swf())
-
-generate_pygal_chart()
-
-# Geoplotlib: Traffic Intensity Map (Static Example)
-st.markdown("### 🌍 Traffic Intensity Map (Geoplotlib)")
-
-def load_geodata():
-    """Load Kigali geospatial data."""
-    return gpd.read_file(gpd.datasets.get_path('naturalearth_lowres'))
-
-geodata = load_geodata()
-st.map(geodata)
-
-# Plotly: Live Traffic Data (Line Chart)
-st.markdown("### 📊 Live Traffic Data Monitoring (Plotly)")
-
-fig = px.line(
-    x=pd.date_range(start='2024-10-24', periods=50, freq='T'),
-    y=np.random.randint(0, 3, 50),
-    labels={'x': 'Time', 'y': 'Congestion Level'},
-    title='Real-Time Congestion Monitoring'
-)
+# --- PLOTLY REAL-TIME TRAVEL TIME ---
+fig = px.line(traffic_data, x='timestamp', y='travel_time', title="Travel Time Trend")
 st.plotly_chart(fig, use_container_width=True)
 
-# Waze Live Map Integration
-st.markdown("### 📍 Live Traffic Map (Waze)")
+# --- BOKEH CONGESTION CHART ---
+def bokeh_congestion_chart(data):
+    p = bk.figure(
+        x_axis_type="datetime", title="Congestion Analysis",
+        plot_width=800, plot_height=400
+    )
+    p.line(data['timestamp'], data['vehicle_count'], line_width=2)
+    hover = HoverTool(tooltips=[("Time", "@x{%F %T}"), ("Vehicles", "@y")], formatters={"@x": "datetime"})
+    p.add_tools(hover)
+    return p
+
+bk.show(bokeh_congestion_chart(traffic_data))
+
+# --- SIMULATION RESULTS AND OPTIMIZATION ---
+st.sidebar.header("Optimization Options")
+route_filter = st.sidebar.selectbox("Select Route", routes_df['route_short_name'])
+traffic_threshold = st.sidebar.slider("Set Congestion Threshold", 0, 100, 50)
+
+# --- SUGGEST ROUTES BASED ON THRESHOLD ---
+def suggest_alternate_routes(selected_route, threshold):
+    if traffic_data['vehicle_count'].mean() > threshold:
+        st.warning(f"High congestion detected on Route {selected_route}. Suggesting alternate routes...")
+        suggestions = routes_df[routes_df['route_short_name'] != selected_route].head(3)
+        st.table(suggestions)
+    else:
+        st.success(f"Traffic on Route {selected_route} is under control.")
+
+suggest_alternate_routes(route_filter, traffic_threshold)
+
+# --- DISPLAY CONGESTION HEATMAP USING GEOPANDAS (DEMO) ---
+st.header("Kigali City Traffic Heatmap (Demo)")
+gdf = gpd.read_file(gpd.datasets.get_path('naturalearth_lowres'))
+ax = gdf[gdf['continent'] == 'Africa'].plot(figsize=(10, 5), edgecolor='black')
+st.pyplot(ax.figure)
+
+# --- FOOTER ---
 st.markdown("""
-<iframe src="https://embed.waze.com/iframe?zoom=13&lat=-1.9705786&lon=30.1044284&ct=livemap" 
-        width="800" height="600" allowfullscreen></iframe>
-""", unsafe_allow_html=True)
-
-# LSTM Model for Traffic Forecasting
-st.markdown("### 🧠 Traffic Forecast with LSTM")
-
-def prepare_data(data, n_steps=3):
-    """Prepare data for LSTM input."""
-    X, y = [], []
-    for i in range(len(data) - n_steps):
-        X.append(data[i:i + n_steps])
-        y.append(data[i + n_steps])
-    return np.array(X), np.array(y)
-
-traffic_data = np.random.randint(0, 3, 100)
-X, y = prepare_data(traffic_data)
-
-model = Sequential([
-    LSTM(50, activation='relu', input_shape=(X.shape[1], 1)),
-    Dropout(0.2),
-    Dense(1)
-])
-model.compile(optimizer='adam', loss='mse')
-model.fit(X, y, epochs=5, verbose=1)
-
-predictions = model.predict(X)
-st.line_chart(predictions.flatten())
-
-# Footer
-st.markdown("""
-<hr>
-<p style='text-align: center;'>
-Designed for <b>Kigali City</b> | Powered by <b>Machine Learning</b> & <b>Real-Time Traffic Data</b>
-</p>
-""", unsafe_allow_html=True)
+---
+**Developed by Kigali City Transport Team**  
+*For optimal travel routes and live traffic updates*
+""")
