@@ -1,13 +1,12 @@
 import streamlit as st
 import pandas as pd
-from io import StringIO
+from io import StringIO  # Use the correct module for StringIO
 import altair as alt
 import plotly.express as px
 import bokeh.plotting as bk
-import geopandas as gpd
 from bokeh.models import HoverTool
+import geopandas as gpd
 import numpy as np
-import requests
 
 # --- SETTING PAGE CONFIG ---
 st.set_page_config(
@@ -26,7 +25,7 @@ route_id,agency_id,route_short_name,route_long_name,route_type,route_desc
 105,1,105,KBS - Zone I - 105,3,Remera Taxi Park-Chez Lando-Kacyiru-NyabugogoTaxi Park
 """
 
-@st.cache_data
+@st.cache_data  # Use Streamlit's cache for performance
 def load_route_data():
     return pd.read_csv(StringIO(route_data))
 
@@ -45,7 +44,7 @@ st.markdown("""
 width="100%" height="450" allowfullscreen></iframe>
 """, unsafe_allow_html=True)
 
-# --- DUMMY SIMULATION DATA ---
+# --- GENERATE SIMULATION DATA ---
 np.random.seed(42)
 time_range = pd.date_range(start='2024-10-24', periods=100, freq='T')
 traffic_data = pd.DataFrame({
@@ -98,7 +97,7 @@ def suggest_alternate_routes(selected_route, threshold):
 
 suggest_alternate_routes(route_filter, traffic_threshold)
 
-# --- DISPLAY CONGESTION HEATMAP USING GEOPANDAS (DEMO) ---
+# --- DISPLAY CONGESTION HEATMAP USING GEOPANDAS ---
 st.header("Kigali City Traffic Heatmap (Demo)")
 gdf = gpd.read_file(gpd.datasets.get_path('naturalearth_lowres'))
 ax = gdf[gdf['continent'] == 'Africa'].plot(figsize=(10, 5), edgecolor='black')
