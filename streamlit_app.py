@@ -4,6 +4,7 @@ import plotly.express as px
 import requests
 from datetime import datetime, timedelta
 import numpy as np
+import time
 
 # Weather API key for Kigali (replace with your OpenWeatherMap API key)
 WEATHER_API_KEY = 'c80a258e17ec49ad85a101108242410'
@@ -15,12 +16,13 @@ def get_weather_data(city_name="Kigali"):
     response = requests.get(complete_url)
     return response.json()
 
-# Simulate live bus data for the dashboard
+# Simulate live bus data for the dashboard with moving buses
 def simulate_bus_data():
+    base_lat, base_lon = -1.94407, 30.06147
     return pd.DataFrame({
         'bus_id': ['Bus_1', 'Bus_2', 'Bus_3', 'Bus_4', 'Bus_5'],
-        'latitude': [-1.94407, -1.95265, -1.94946, -1.95007, -1.95330],
-        'longitude': [30.06147, 30.08210, 30.07964, 30.06750, 30.05430],
+        'latitude': [base_lat + np.random.uniform(-0.01, 0.01) for _ in range(5)],
+        'longitude': [base_lon + np.random.uniform(-0.01, 0.01) for _ in range(5)],
         'passenger_count': np.random.randint(10, 50, size=5),
         'last_updated': [datetime.now() - timedelta(minutes=np.random.randint(1, 10)) for _ in range(5)]
     })
@@ -52,11 +54,25 @@ def suggest_alternative_route(routes, traffic_data):
 
 # Simulate demand prediction (without model)
 def simulate_demand_prediction(data):
-    # Assuming we want to simulate a future passenger demand curve over the next 10 time units
     future_time_units = np.arange(10)
-    # Simulated random demand (increasing for demonstration purposes)
     demand_forecast = np.cumsum(np.random.randint(10, 100, size=10))
     return future_time_units, demand_forecast
+
+# Function to update bus data and traffic information every few seconds
+def update_data_periodically():
+    while True:
+        st.write("**Updating data in real-time...**")
+        time.sleep(5)
+        # Simulated updates for buses and traffic
+        bus_data = simulate_bus_data()
+        st.dataframe(bus_data)
+        
+        # Updating map with new positions
+        fig = px.scatter_mapbox(bus_data, lat="latitude", lon="longitude", hover_name="bus_id", hover_data=["passenger_count"],
+                                zoom=12, height=500)
+        fig.update_layout(mapbox_style="open-street-map")
+        st.plotly_chart(fig)
+        # Auto-refresh every 10 seconds
 
 # Main App Layout
 st.set_page_config(layout="wide", page_title="Kigali Public Transport Optimization Dashboard")
@@ -87,7 +103,7 @@ with tabs[0]:
         st.write("### Historical Data")
         st.dataframe(data.head())
         
-        # Simulate demand prediction (since no model is used)
+        # Simulate demand prediction
         future_time, demand_forecast = simulate_demand_prediction(data)
         
         st.write("### Simulated Passenger Demand Forecast")
@@ -129,22 +145,14 @@ with tabs[2]:
     st.title("Real-time Public Transport Dashboard")
     st.write("## Live Updates on Bus Locations and Routes")
 
-    # Simulated bus data
-    bus_data = simulate_bus_data()
-    st.write("### Live Bus Locations and Passenger Count")
-    st.dataframe(bus_data)
-
-    # Plot bus locations on a map
-    fig = px.scatter_mapbox(bus_data, lat="latitude", lon="longitude", hover_name="bus_id", hover_data=["passenger_count"],
-                            zoom=12, height=500)
-    fig.update_layout(mapbox_style="open-street-map")
-    st.plotly_chart(fig)
+    # Real-time updates with simulated data
+    update_data_periodically()
 
 # --- Tab 4: Weather Info ---
 with tabs[3]:
     st.title("Real-time Weather Info for Kigali")
     
-    city = "Kigali"  # Predefined city name for Kigali
+    city = "Kigali"
     if st.button("Get Weather"):
         weather_data = get_weather_data(city)
         
