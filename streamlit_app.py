@@ -28,6 +28,110 @@ route_id,agency_id,route_short_name,route_long_name,route_type,route_desc
 @st.cache_data  # Use Streamlit's cache for performance
 def load_route_data():
     return pd.read_csv(StringIO(route_data))
+import streamlit as st
+import pandas as pd
+import numpy as np
+import geopandas as gpd
+from bokeh.plotting import figure
+from bokeh.models import ColumnDataSource
+from datetime import datetime, timedelta
+import time
+
+# --- Data Simulation Setup ---
+def generate_live_data():
+    """Simulate live data for traffic stats."""
+    np.random.seed(int(datetime.now().timestamp()))
+    vehicle_count = np.random.randint(20, 100)
+    travel_time = np.random.uniform(5, 25)
+    route = np.random.choice(['Route A', 'Route B', 'Route C', 'Route D'])
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    return {"timestamp": timestamp, "vehicle_count": vehicle_count, "travel_time": travel_time, "route": route}
+
+# --- Initialize DataFrame for Live Data ---
+if 'traffic_data' not in st.session_state:
+    st.session_state.traffic_data = pd.DataFrame([generate_live_data() for _ in range(10)])
+
+# --- Widgets for Interactivity and Optimization ---
+st.sidebar.header("Control Panel")
+
+# Filters for route optimization
+st.sidebar.subheader("Optimization Filters")
+selected_routes = st.sidebar.multiselect("Select Routes", ['Route A', 'Route B', 'Route C', 'Route D'], default=['Route A', 'Route B'])
+min_vehicle_count = st.sidebar.slider("Minimum Vehicle Count", min_value=0, max_value=100, value=20)
+max_travel_time = st.sidebar.slider("Maximum Travel Time (minutes)", min_value=5, max_value=30, value=20)
+
+# Refresh and view options
+refresh_rate = st.sidebar.slider("Refresh Rate (seconds)", min_value=1, max_value=10, value=5, step=1)
+view_option = st.sidebar.selectbox("Select View", ["Traffic Chart", "Geo Map"])
+show_table = st.sidebar.checkbox("Show Raw Data")
+
+# --- Bokeh Plot Setup ---
+def bokeh_live_chart(data):
+    """Generate a Bokeh chart for live traffic data."""
+    source = ColumnDataSource(data)
+    p = figure(
+        title="Live Traffic Data",
+        x_axis_type="datetime",
+        height=400,
+        x_axis_label="Timestamp",
+        y_axis_label="Vehicle Count",
+    )
+    p.line(x="timestamp", y="vehicle_count", line_width=2, source=source, color="blue", legend_label="Vehicles")
+    p.line(x="timestamp", y="travel_time", line_width=2, source=source, color="green", legend_label="Travel Time")
+    p.legend.title = "Metrics"
+    return p
+
+# --- Geopandas Map Setup ---
+@st.cache_data
+def load_geodata():
+    """Load and cache geographic data."""
+    return gpd.read_file(gpd.datasets.get_path("naturalearth_lowres"))
+
+geo_data = load_geodata()
+
+# --- Main App Logic ---
+if view_option == "Traffic Chart":
+    st.title("Live Traffic Monitoring")
+
+    # Filter data based on user selections
+    filtered_data = st.session_state.traffic_data[
+        (st.session_state.traffic_data['route'].isin(selected_routes)) &
+        (st.session_state.traffic_data['vehicle_count'] >= min_vehicle_count) &
+        (st.session_state.traffic_data['travel_time'] <= max_travel_time)
+    ]
+
+    # Placeholder for dynamic updates
+    chart_placeholder = st.empty()
+
+    while True:
+        # Append new data to the traffic DataFrame
+        new_data = generate_live_data()
+        st.session_state.traffic_data = pd.concat([st.session_state.traffic_data, pd.DataFrame([new_data])], ignore_index=True)
+
+        # Keep the DataFrame size manageable
+        st.session_state.traffic_data = st.session_state.traffic_data.tail(50)
+
+        # Apply the filters again to the latest data
+        filtered_data = st.session_state.traffic_data[
+            (st.session_state.traffic_data['route'].isin(selected_routes)) &
+            (st.session_state.traffic_data['vehicle_count'] >= min_vehicle_count) &
+            (st.session_state.traffic_data['travel_time'] <= max_travel_time)
+        ]
+
+        # Plot the updated data
+        chart = bokeh_live_chart(filtered_data)
+        chart_placeholder.bokeh_chart(chart, use_container_width=True)
+
+        if show_table:
+            st.dataframe(filtered_data)
+
+        # Refresh the dashboard at the user-defined interval
+        time.sleep(refresh_rate)
+        st.experimental_rerun()
+
+elif view_option == "Geo Map":
+    st.title("Global Transportation Map")
+    st.map(geo_data)
 
 # --- LOAD ROUTES DATA ---
 routes_df = load_route_data()
