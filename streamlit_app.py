@@ -72,14 +72,25 @@ st.plotly_chart(fig, use_container_width=True)
 def bokeh_congestion_chart(data):
     p = bk.figure(
         x_axis_type="datetime", title="Congestion Analysis",
-        plot_width=800, plot_height=400
+        width=800, height=400  # Updated from plot_width/plot_height
     )
     p.line(data['timestamp'], data['vehicle_count'], line_width=2)
-    hover = HoverTool(tooltips=[("Time", "@x{%F %T}"), ("Vehicles", "@y")], formatters={"@x": "datetime"})
+
+    # Add hover tool for interactivity
+    hover = HoverTool(
+        tooltips=[("Time", "@x{%F %T}"), ("Vehicles", "@y")],
+        formatters={"@x": "datetime"}
+    )
     p.add_tools(hover)
+
     return p
 
-bk.show(bokeh_congestion_chart(traffic_data))
+# Call the Bokeh chart
+bokeh_chart = bokeh_congestion_chart(traffic_data)
+bk.show(bokeh_chart)
+# Display the Bokeh chart in Streamlit
+st.bokeh_chart(bokeh_congestion_chart(traffic_data), use_container_width=True)
+
 
 # --- SIMULATION RESULTS AND OPTIMIZATION ---
 st.sidebar.header("Optimization Options")
