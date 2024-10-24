@@ -1,189 +1,123 @@
-import streamlit as st
 import pandas as pd
+import streamlit as st
 import plotly.express as px
-import requests
-from datetime import datetime, timedelta
 import numpy as np
+import seaborn as sns
+import matplotlib.pyplot as plt
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import mean_squared_error
+from io import StringIO
+from sklearn.preprocessing import LabelEncoder
 import time
 
-# Weather API key for Kigali (replace with your OpenWeatherMap API key)
-WEATHER_API_KEY = 'c80a258e17ec49ad85a101108242410'
-
-# Function to get weather data from OpenWeatherMap for Kigali
-def get_weather_data(city_name="Kigali"):
-    base_url = "http://api.openweathermap.org/data/2.5/weather?"
-    complete_url = base_url + "q=" + city_name + "&appid=" + WEATHER_API_KEY + "&units=metric"
-    response = requests.get(complete_url)
-    return response.json()
-
-# Simulate live bus data for the dashboard with moving buses
-def simulate_bus_data():
-    base_lat, base_lon = -1.94407, 30.06147
-    return pd.DataFrame({
-        'bus_id': ['Bus_1', 'Bus_2', 'Bus_3', 'Bus_4', 'Bus_5'],
-        'latitude': [base_lat + np.random.uniform(-0.01, 0.01) for _ in range(5)],
-        'longitude': [base_lon + np.random.uniform(-0.01, 0.01) for _ in range(5)],
-        'passenger_count': np.random.randint(10, 50, size=5),
-        'last_updated': [datetime.now() - timedelta(minutes=np.random.randint(1, 10)) for _ in range(5)]
-    })
-
-# Simulate traffic data for different routes
-def simulate_traffic_for_route(route_id):
-    traffic_conditions = np.random.choice(['Heavy Traffic', 'Moderate Traffic', 'Light Traffic'], p=[0.3, 0.5, 0.2])
-    delay = np.random.randint(5, 30) if traffic_conditions == 'Heavy Traffic' else np.random.randint(0, 10)
-    return {
-        'route_id': route_id,
-        'traffic_condition': traffic_conditions,
-        'estimated_delay_minutes': delay
+# Load simulated data
+def load_data():
+    # Simulated bus routes data
+    routes_data = """
+    route_id,agency_id,route_short_name,route_long_name,route_type,route_desc
+    101,1,101,KBS - Zone I - 101,3,Remera Taxi Park-Sonatubes-Rwandex-CBD
+    102,1,102,KBS - Zone I - 102,3,Kabuga-Mulindi-Remera-Sonatubes-Rwandex Nyabugogo Taxi Park
+    103,1,103,KBS - Zone I - 103,3,Rubilizi-Kabeza-Remera-Sonatubes-Rwandex-CBD
+    104,1,104,KBS - Zone I - 104,3,Kibaya-Kanombe MH-Airport-Remera-Sonatubes-Rwandex-CBD
+    105,1,105,KBS - Zone I - 105,3,Remera Taxi Park-Chez Lando-Kacyiru-Nyabugogo Taxi Park
+    """
+    
+    # Simulated stop times data for bus routes
+    stop_times_data = """
+    stop_id,route_id,stop_sequence,arrival_time,departure_time,stop_name
+    1,101,1,08:00:00,08:01:00,Remera Taxi Park
+    2,101,2,08:05:00,08:06:00,Sonatubes
+    3,101,3,08:10:00,08:11:00,Rwandex
+    4,101,4,08:15:00,08:16:00,CBD
+    5,102,1,08:00:00,08:01:00,Kabuga
+    6,102,2,08:05:00,08:06:00,Remera
+    7,102,3,08:10:00,08:11:00,Sonatubes
+    8,102,4,08:15:00,08:16:00,Rwandex Nyabugogo Taxi Park
+    """
+    
+    # Simulated accident data with severity
+    accident_data = {
+        "stop_id": [1, 2, 3, 4],
+        "route_id": [101, 101, 102, 102],
+        "accident_occurred": [1, 0, 1, 0],  # 1 indicates accident occurred
+        "severity": [3, 0, 2, 0],  # 0: None, 1: Minor, 2: Moderate, 3: Severe
     }
 
-# Function to suggest alternative routes based on traffic
-def suggest_alternative_route(routes, traffic_data):
-    heavy_traffic_routes = [r['route_id'] for r in traffic_data if r['traffic_condition'] == 'Heavy Traffic']
+    # Simulated traffic congestion data
+    traffic_congestion_data = {
+        "route_id": [101, 102, 103, 104, 105],
+        "congestion_level": [2, 1, 0, 2, 0],  # 0: None, 1: Medium, 2: High
+        "congestion_desc": ["Heavy traffic", "Moderate traffic", "No traffic", "Heavy traffic", "No traffic"]
+    }
+
+    routes_df = pd.read_csv(StringIO(routes_data))
+    stop_times_df = pd.read_csv(StringIO(stop_times_data))
+    accident_df = pd.DataFrame(accident_data)
+    traffic_df = pd.DataFrame(traffic_congestion_data)
     
-    if heavy_traffic_routes:
-        st.write("**Heavy Traffic detected on the following routes:**")
-        st.write(heavy_traffic_routes)
-        st.write("Suggesting alternative routes...")
-        
-        # Suggest other routes that do not have heavy traffic
-        alternative_routes = routes[~routes['route_id'].isin(heavy_traffic_routes)]
-        st.write(alternative_routes[['route_id', 'origin', 'destination']])
-    else:
-        st.write("No heavy traffic detected. All routes are running smoothly.")
+    return routes_df, stop_times_df, accident_df, traffic_df
 
-# Simulate demand prediction (without model)
-def simulate_demand_prediction(data):
-    future_time_units = np.arange(10)
-    demand_forecast = np.cumsum(np.random.randint(10, 100, size=10))
-    return future_time_units, demand_forecast
+# Load the data
+routes_df, stop_times_df, accident_df, traffic_df = load_data()
 
-# Function to update bus data and traffic information every few seconds
-def update_data_periodically():
-    while True:
-        st.write("**Updating data in real-time...**")
-        time.sleep(5)
-        # Simulated updates for buses and traffic
-        bus_data = simulate_bus_data()
-        st.dataframe(bus_data)
-        
-        # Updating map with new positions
-        fig = px.scatter_mapbox(bus_data, lat="latitude", lon="longitude", hover_name="bus_id", hover_data=["passenger_count"],
-                                zoom=12, height=500)
-        fig.update_layout(mapbox_style="open-street-map")
-        st.plotly_chart(fig)
-        # Auto-refresh every 10 seconds
+# Convert time columns to datetime
+stop_times_df['arrival_time'] = pd.to_datetime(stop_times_df['arrival_time'], format='%H:%M:%S').dt.time
+stop_times_df['departure_time'] = pd.to_datetime(stop_times_df['departure_time'], format='%H:%M:%S').dt.time
 
-# Main App Layout
-st.set_page_config(layout="wide", page_title="Kigali Public Transport Optimization Dashboard")
+# Sidebar inputs
+st.sidebar.header("Leader Control Panel")
+selected_routes = st.sidebar.multiselect("Select Routes", options=routes_df['route_long_name'].tolist(), default=routes_df['route_long_name'].tolist())
+selected_stops = st.sidebar.multiselect("Select Stops", options=stop_times_df['stop_name'].unique().tolist(), default=stop_times_df['stop_name'].unique().tolist())
+time_range = st.sidebar.slider("Select Time Range (Hours)", min_value=0, max_value=24, value=(0, 24), step=1)
 
-# Sidebar - File Upload
-st.sidebar.title("Upload Historical Data")
-uploaded_file = st.sidebar.file_uploader("Choose a CSV file", type="csv")
+# Filter stop times based on inputs
+filtered_stop_times = stop_times_df[stop_times_df['route_id'].isin([int(r.split('-')[0]) for r in selected_routes])]
+filtered_stop_times = filtered_stop_times[filtered_stop_times['stop_name'].isin(selected_stops)]
 
-# Load Data
-@st.cache_data
-def load_data(file):
-    return pd.read_csv(file)
+# Time range filtering
+filtered_stop_times['arrival_hour'] = pd.to_datetime(filtered_stop_times['arrival_time'].astype(str)).dt.hour
+filtered_stop_times = filtered_stop_times[(filtered_stop_times['arrival_hour'] >= time_range[0]) & (filtered_stop_times['arrival_hour'] <= time_range[1])]
 
-if uploaded_file is not None:
-    data = load_data(uploaded_file)
-    st.sidebar.write("**Data Loaded Successfully!**")
-else:
-    st.sidebar.write("Please upload historical data to enable demand prediction.")
+# Show filtered stop times
+st.subheader("Filtered Stop Times")
+st.dataframe(filtered_stop_times)
 
-# Main Layout - Tabs for different sections
-tabs = st.tabs(["Demand Prediction", "Traffic Rerouting", "Real-time Dashboard", "Weather Info", "Safety & Incident Alerts"])
+# Correlation matrix (accident severity, stop sequence, congestion)
+st.subheader("Correlation Matrix")
+correlation_data = pd.merge(accident_df, traffic_df, on='route_id')
+correlation_matrix = correlation_data[['severity', 'congestion_level']].corr()
+sns.heatmap(correlation_matrix, annot=True, cmap="coolwarm", cbar=True)
+st.pyplot()
 
-# --- Tab 1: Demand Prediction ---
-with tabs[0]:
-    st.title("Demand Prediction")
-    
-    if uploaded_file is not None:
-        st.write("### Historical Data")
-        st.dataframe(data.head())
-        
-        # Simulate demand prediction
-        future_time, demand_forecast = simulate_demand_prediction(data)
-        
-        st.write("### Simulated Passenger Demand Forecast")
-        demand_df = pd.DataFrame({
-            'Time Units': future_time,
-            'Predicted Demand': demand_forecast
-        })
-        st.line_chart(demand_df.set_index('Time Units'))
-    else:
-        st.write("Upload historical data to predict demand.")
+# Real-time traffic jam tracking on Waze Map
+st.subheader("Real-Time Traffic Jam Tracking")
+st.components.v1.iframe("https://embed.waze.com/iframe?zoom=10&lat=-1.934712&lon=29.974184&ct=livemap", width=600, height=450)
 
-# --- Tab 2: Traffic Rerouting Simulation ---
-with tabs[1]:
-    st.title("Traffic Rerouting Simulation")
-    st.write("## Simulate Traffic Incidents and Optimize Routes")
+# Live Congestion Tracking
+st.subheader("Real-Time Congestion Chart")
+traffic_fig = px.bar(traffic_df, x='route_id', y='congestion_level', color='congestion_desc', title='Real-Time Congestion Tracking', 
+                     labels={"congestion_level": "Congestion Level (0: None, 1: Medium, 2: High)"})
+st.plotly_chart(traffic_fig)
 
-    # Input boxes for origin and destination
-    origin = st.text_input("Origin", "Kigali Convention Centre")
-    destination = st.text_input("Destination", "Nyabugogo Bus Terminal")
+# Machine Learning: Predicting traffic jams
+st.subheader("Predict Traffic Congestion Using Random Forest")
+# Prepare data for ML
+encoder = LabelEncoder()
+traffic_df['congestion_desc_encoded'] = encoder.fit_transform(traffic_df['congestion_desc'])
+X = traffic_df[['route_id']]
+y = traffic_df['congestion_desc_encoded']
 
-    if st.button("Simulate Traffic"):
-        # Simulate traffic conditions for different routes
-        traffic_info = [simulate_traffic_for_route(f"Route_{i+1}") for i in range(3)]
-        
-        st.write("### Traffic Conditions for Routes:")
-        for t in traffic_info:
-            st.write(f"**Route {t['route_id']}:** {t['traffic_condition']} (Estimated Delay: {t['estimated_delay_minutes']} mins)")
-        
-        # Route suggestions
-        routes = pd.DataFrame({
-            'route_id': ['Route_1', 'Route_2', 'Route_3'],
-            'origin': ['KCC', 'Remera', 'Nyabugogo'],
-            'destination': ['Nyabugogo', 'Kimironko', 'Kicukiro']
-        })
-        suggest_alternative_route(routes, traffic_info)
+# Split data and train model
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+rf_model = RandomForestRegressor(n_estimators=100, random_state=42)
+rf_model.fit(X_train, y_train)
+y_pred = rf_model.predict(X_test)
+mse = mean_squared_error(y_test, y_pred)
+st.subheader(f"Prediction Model Performance: Mean Squared Error = {mse:.2f}")
 
-# --- Tab 3: Real-time Dashboard ---
-with tabs[2]:
-    st.title("Real-time Public Transport Dashboard")
-    st.write("## Live Updates on Bus Locations and Routes")
-
-    # Real-time updates with simulated data
-    update_data_periodically()
-
-# --- Tab 4: Weather Info ---
-with tabs[3]:
-    st.title("Real-time Weather Info for Kigali")
-    
-    city = "Kigali"
-    if st.button("Get Weather"):
-        weather_data = get_weather_data(city)
-        
-        if weather_data["cod"] != "404":
-            weather_main = weather_data["main"]
-            weather_description = weather_data["weather"][0]["description"]
-            temp = weather_main["temp"]
-            humidity = weather_main["humidity"]
-            wind_speed = weather_data["wind"]["speed"]
-
-            st.write(f"### Weather in {city}")
-            st.write(f"**Temperature**: {temp} °C")
-            st.write(f"**Weather**: {weather_description}")
-            st.write(f"**Humidity**: {humidity}%")
-            st.write(f"**Wind Speed**: {wind_speed} m/s")
-        else:
-            st.write("City Not Found")
-
-# --- Tab 5: Safety & Incident Alerts ---
-with tabs[4]:
-    st.title("Safety & Incident Alerts")
-    st.write("## Monitor Safety and Incident Reports in Kigali")
-
-    # Simulated incident reports for safety
-    incident_data = pd.DataFrame({
-        'incident_id': ['Incident_1', 'Incident_2', 'Incident_3'],
-        'location': ['Nyabugogo', 'Remera', 'Kicukiro'],
-        'incident_type': ['Accident', 'Protest', 'Road Closure'],
-        'reported_time': [datetime.now() - timedelta(minutes=i*15) for i in range(3)]
-    })
-    st.write("### Recent Incidents")
-    st.dataframe(incident_data)
-    
-    st.write("Monitor incidents to reroute buses and deploy emergency services efficiently.")
+# Footer for City Leader
+st.markdown("""
+### Insights for City Leadership
+This dashboard provides city leaders with real-time insights into bus routes, traffic congestion, accidents, and predictive analytics to improve transportation management. The Waze map displays live traffic updates to track jams, while the predictive model helps anticipate future congestion levels.
+""")
