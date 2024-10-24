@@ -7,7 +7,7 @@ import googlemaps
 from tensorflow.keras.models import load_model
 
 # Initialize Google Maps Client
-gmaps = googlemaps.Client(key='YOUR_GOOGLE_MAPS_API_KEY')
+#gmaps = googlemaps.Client(key='YOUR_GOOGLE_MAPS_API_KEY')
 
 # Weather API key
 WEATHER_API_KEY = 'c80a258e17ec49ad85a101108242410'
