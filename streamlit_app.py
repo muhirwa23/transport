@@ -11,7 +11,7 @@ from tensorflow.keras.models import load_model
 gmaps = googlemaps.Client(key='YOUR_GOOGLE_MAPS_API_KEY')
 
 # Weather API key
-WEATHER_API_KEY = 'YOUR_WEATHER_API_KEY'
+WEATHER_API_KEY = 'c80a258e17ec49ad85a101108242410'
 
 # Function to get weather data from OpenWeatherMap
 def get_weather_data(city_name):
