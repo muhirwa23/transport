@@ -3,8 +3,10 @@ import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
 import plotly.express as px
-import plotly.graph_objects as go
 import time
+import folium
+from streamlit_folium import st_folium
+from folium.plugins import MarkerCluster
 
 # --- PAGE CONFIGURATION ---
 st.set_page_config(
@@ -62,45 +64,42 @@ min_vehicle_count = st.sidebar.slider("Minimum Vehicle Count", 0, 100, 20)
 max_travel_time = st.sidebar.slider("Maximum Travel Time (minutes)", 5, 30, 20)
 refresh_rate = st.sidebar.slider("Refresh Rate (seconds)", 1, 10, 5)
 
-# --- DYNAMIC CHART ---
-st.subheader("Live Traffic Data")
+# --- LIVE UPDATING DATA ---
+st.write("Live data updates every", refresh_rate, "seconds.")
 
 # Filter traffic data based on the selected routes
 filtered_data = st.session_state.traffic_data[st.session_state.traffic_data['route'].isin(selected_routes)]
 
-# Plot dynamic chart using Plotly
+# --- PREDICTION FEATURE (Simple Moving Average) ---
+def predict_traffic(data, window=3):
+    """Predict future traffic using a simple moving average."""
+    data['vehicle_count_pred'] = data['vehicle_count'].rolling(window=window).mean().shift(-1)
+    data['congestion_pred'] = data['congestion'].rolling(window=window).mean().shift(-1)
+    return data
+
+# Apply prediction
+predicted_data = predict_traffic(filtered_data)
+
+# --- DISPLAY CHARTS ---
+st.subheader("Live Traffic Data and Predictions")
+
+# Plot real-time and predicted vehicle count
 vehicle_fig = px.line(filtered_data, x='timestamp', y='vehicle_count', color='route',
                       title="Vehicle Count Over Time", markers=True)
+vehicle_fig.add_scatter(x=predicted_data['timestamp'], y=predicted_data['vehicle_count_pred'], mode='lines+markers', 
+                        name='Predicted Vehicle Count', line=dict(dash='dash'))
 
+# Plot real-time and predicted congestion
 congestion_fig = px.line(filtered_data, x='timestamp', y='congestion', color='route',
                          title="Congestion Level Over Time", markers=True)
+congestion_fig.add_scatter(x=predicted_data['timestamp'], y=predicted_data['congestion_pred'], mode='lines+markers', 
+                           name='Predicted Congestion', line=dict(dash='dash'))
 
-# Display dynamic charts
+# Display charts
 st.plotly_chart(vehicle_fig, use_container_width=True)
 st.plotly_chart(congestion_fig, use_container_width=True)
 
-# --- LIVE UPDATING DATA ---
-st.write("Live data updates every", refresh_rate, "seconds.")
-for _ in range(100):  # This loop will simulate continuous updates for the chart
-    new_data = pd.DataFrame([generate_live_data()])
-    st.session_state.traffic_data = pd.concat([st.session_state.traffic_data, new_data]).tail(100)
-    
-    # Update the filtered data and charts
-    filtered_data = st.session_state.traffic_data[st.session_state.traffic_data['route'].isin(selected_routes)]
-    
-    vehicle_fig = px.line(filtered_data, x='timestamp', y='vehicle_count', color='route',
-                          title="Vehicle Count Over Time", markers=True)
-    congestion_fig = px.line(filtered_data, x='timestamp', y='congestion', color='route',
-                             title="Congestion Level Over Time", markers=True)
-
-    # Update the charts in real-time
-    st.plotly_chart(vehicle_fig, use_container_width=True)
-    st.plotly_chart(congestion_fig, use_container_width=True)
-
-    time.sleep(refresh_rate)
-
-
-# --- Sample Data Simulation for Dynamic Map ---
+# --- DYNAMIC MAP ---
 def generate_random_data():
     """Generate random data for congestion and accidents."""
     latitudes = np.random.uniform(-1.96, -1.92, 10)  # Latitude range for Kigali
@@ -119,20 +118,14 @@ def generate_random_data():
         'timestamp': timestamps
     })
 
-# --- Load or Generate Data ---
 if 'map_data' not in st.session_state:
     st.session_state.map_data = generate_random_data()
 
-# --- Dynamic Map Function ---
 def create_dynamic_map(data):
     """Create a dynamic Folium map with congestion and accident markers."""
-    # Initialize a Folium map centered around Kigali
     folium_map = folium.Map(location=[-1.95, 30.06], zoom_start=12)
-
-    # Use a MarkerCluster for better marker management
     marker_cluster = MarkerCluster().add_to(folium_map)
 
-    # Add markers to the map
     for _, row in data.iterrows():
         popup_text = f"""
         <b>Route:</b> {row['route']}<br>
@@ -149,24 +142,15 @@ def create_dynamic_map(data):
 
     return folium_map
 
-# --- Streamlit App Layout ---
-st.title("Kigali Traffic Optimization and Monitoring System")
-
-# Display real-time traffic data
-st.subheader("Live Traffic Data")
-st.dataframe(st.session_state.traffic_data)
-
-# Suggest alternate routes for high congestion
-for route in selected_routes:
-    suggest_alternate_routes(route)
-
-# Dynamic map display
+# --- MAP DISPLAY ---
 st.subheader("Real-time Traffic Map")
 map_ = create_dynamic_map(st.session_state.map_data)
 st_folium(map_, width=700, height=500)
 
-# Auto-refresh data at the set interval
-if st.button("Refresh Traffic Data"):
-    st.session_state.traffic_data = pd.DataFrame([generate_live_data() for _ in range(10)])
+# --- AUTO-REFRESH TRAFFIC DATA ---
+for _ in range(100):
+    new_data = pd.DataFrame([generate_live_data()])
+    st.session_state.traffic_data = pd.concat([st.session_state.traffic_data, new_data]).tail(100)
     st.session_state.map_data = generate_random_data()
+    time.sleep(refresh_rate)
     st.experimental_rerun()
