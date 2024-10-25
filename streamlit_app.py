@@ -63,7 +63,23 @@ filtered_data = st.session_state.traffic_data[
     (st.session_state.traffic_data['travel_time'] <= max_travel_time)
 ]
 
-# --- Display the 3D Map with Traffic Data ---
+# --- KPI Cards ---
+st.header("Key Performance Indicators")
+col1, col2, col3 = st.columns(3)
+
+with col1:
+    avg_vehicle_count = filtered_data['vehicle_count'].mean() if not filtered_data.empty else 0
+    st.metric("Average Vehicle Count", f"{avg_vehicle_count:.2f}")
+
+with col2:
+    avg_travel_time = filtered_data['travel_time'].mean() if not filtered_data.empty else 0
+    st.metric("Average Travel Time (min)", f"{avg_travel_time:.2f}")
+
+with col3:
+    congestion_level = "High" if avg_vehicle_count > 50 else "Low"
+    st.metric("Congestion Level", congestion_level)
+
+# --- Dynamic 3D Map with Traffic Data ---
 st.subheader("Live 3D Traffic Map")
 fig = px.scatter_3d(
     filtered_data, 
@@ -81,13 +97,42 @@ fig.update_layout(scene=dict(
 ))
 st.plotly_chart(fig, use_container_width=True)
 
-# --- Plot Real-Time Vehicle Count ---
+# --- Real-Time Vehicle Count Chart ---
 st.subheader("Real-Time Vehicle Count")
 line_fig = px.line(
     filtered_data, x='timestamp', y='vehicle_count', 
     title="Real-Time Vehicle Count per Route", markers=True
 )
 st.plotly_chart(line_fig, use_container_width=True)
+
+# --- Average Travel Time per Route (Dynamic Bar Chart) ---
+st.subheader("Dynamic Average Travel Time per Route")
+avg_travel_time_fig = px.bar(
+    filtered_data.groupby("route")['travel_time'].mean().reset_index(),
+    x='route', y='travel_time',
+    title="Dynamic Average Travel Time per Route",
+    labels={'travel_time': 'Average Travel Time (minutes)'}
+)
+st.plotly_chart(avg_travel_time_fig, use_container_width=True)
+
+# --- Vehicle Count Distribution ---
+st.subheader("Vehicle Count Distribution")
+vehicle_count_hist = px.histogram(
+    filtered_data, x='vehicle_count', nbins=10,
+    title="Vehicle Count Distribution",
+    labels={'vehicle_count': 'Number of Vehicles'}
+)
+st.plotly_chart(vehicle_count_hist, use_container_width=True)
+
+# --- Travel Time vs Vehicle Count ---
+st.subheader("Travel Time vs Vehicle Count")
+scatter_fig = px.scatter(
+    filtered_data, x='vehicle_count', y='travel_time',
+    title="Travel Time vs Vehicle Count",
+    labels={'vehicle_count': 'Vehicle Count', 'travel_time': 'Travel Time (minutes)'},
+    trendline='ols'
+)
+st.plotly_chart(scatter_fig, use_container_width=True)
 
 # --- Suggest Alternate Routes ---
 st.sidebar.subheader("Suggest Alternate Routes")
