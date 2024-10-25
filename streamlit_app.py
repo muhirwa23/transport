@@ -4,6 +4,8 @@ import numpy as np
 import plotly.express as px
 import plotly.graph_objs as go
 import time
+from sklearn.linear_model import LinearRegression
+from sklearn.preprocessing import PolynomialFeatures
 
 # --- Load Route Data ---
 @st.cache_data
@@ -51,7 +53,7 @@ def generate_event_data():
     return {'latitude': latitude, 'longitude': longitude, 'event_time': event_time}
 
 # --- Display UI ---
-st.title("Kigali Traffic Monitoring and Optimization System with 3D Event Tracking")
+st.title("Kigali Traffic Monitoring and Prediction System")
 
 # --- Route Selection ---
 selected_routes = st.sidebar.multiselect(
@@ -97,8 +99,9 @@ fig_map_3d = go.Figure(data=[go.Scatter3d(
     z=[0]*len(st.session_state.event_data),  # Place events on the ground level
     mode='markers',
     marker=dict(
-        size=5,
-        color='red',
+        size=6,
+        color='rgb(231,76,60)',  # Professional red tone for events
+        opacity=0.8,
     ),
     text=st.session_state.event_data['event_time'],
     hoverinfo='text',
@@ -106,12 +109,13 @@ fig_map_3d = go.Figure(data=[go.Scatter3d(
 
 fig_map_3d.update_layout(
     scene=dict(
-        xaxis_title="Longitude",
-        yaxis_title="Latitude",
+        xaxis=dict(title="Longitude", backgroundcolor="rgb(240, 240, 240)", gridcolor="white"),
+        yaxis=dict(title="Latitude", backgroundcolor="rgb(240, 240, 240)", gridcolor="white"),
         zaxis=dict(title="Elevation (m)", range=[0, 100], visible=False),
     ),
     margin=dict(r=10, l=10, b=10, t=10),
-    title="3D Map of Event Locations in Kigali"
+    title="3D Map of Event Locations in Kigali",
+    paper_bgcolor="rgb(255,255,255)",
 )
 
 st.plotly_chart(fig_map_3d, use_container_width=True)
@@ -120,9 +124,32 @@ st.plotly_chart(fig_map_3d, use_container_width=True)
 st.subheader("Real-Time Vehicle Count")
 line_fig = px.line(
     st.session_state.traffic_data, x='timestamp', y='vehicle_count', 
-    title="Real-Time Vehicle Count per Route", markers=True
+    title="Real-Time Vehicle Count per Route", markers=True,
+    color_discrete_sequence=["rgb(41,128,185)"]
 )
 st.plotly_chart(line_fig, use_container_width=True)
+
+# --- Predict Future Vehicle Count ---
+st.subheader("Vehicle Count Prediction")
+timestamps = np.array([i for i in range(len(st.session_state.traffic_data))]).reshape(-1, 1)
+vehicle_counts = st.session_state.traffic_data['vehicle_count'].values
+
+# Polynomial regression for more accurate prediction
+poly = PolynomialFeatures(degree=2)
+timestamps_poly = poly.fit_transform(timestamps)
+model = LinearRegression().fit(timestamps_poly, vehicle_counts)
+future_timestamps = np.array([i for i in range(len(timestamps), len(timestamps) + 10)]).reshape(-1, 1)
+future_timestamps_poly = poly.transform(future_timestamps)
+future_vehicle_counts = model.predict(future_timestamps_poly)
+
+# Plot predictions
+pred_fig = px.line(x=list(timestamps.flatten()) + list(future_timestamps.flatten()),
+                   y=list(vehicle_counts) + list(future_vehicle_counts),
+                   labels={'x': 'Time', 'y': 'Vehicle Count'},
+                   title="Predicted Vehicle Count")
+pred_fig.add_scatter(x=timestamps.flatten(), y=vehicle_counts, mode='markers', name='Observed')
+pred_fig.add_scatter(x=future_timestamps.flatten(), y=future_vehicle_counts, mode='lines', name='Predicted')
+st.plotly_chart(pred_fig, use_container_width=True)
 
 # --- Dynamic Average Travel Time per Route ---
 st.subheader("Dynamic Average Travel Time per Route")
@@ -130,28 +157,18 @@ avg_travel_time_fig = px.bar(
     st.session_state.traffic_data.groupby("route")['travel_time'].mean().reset_index(),
     x='route', y='travel_time',
     title="Dynamic Average Travel Time per Route",
-    labels={'travel_time': 'Average Travel Time (minutes)'}
+    labels={'travel_time': 'Average Travel Time (minutes)'},
+    color_discrete_sequence=["rgb(39,174,96)"]
 )
 st.plotly_chart(avg_travel_time_fig, use_container_width=True)
 
-# --- Vehicle Count Distribution ---
-st.subheader("Vehicle Count Distribution")
-vehicle_count_hist = px.histogram(
-    st.session_state.traffic_data, x='vehicle_count', nbins=10,
-    title="Vehicle Count Distribution",
-    labels={'vehicle_count': 'Number of Vehicles'}
-)
-st.plotly_chart(vehicle_count_hist, use_container_width=True)
-
-# --- Travel Time vs Vehicle Count ---
-st.subheader("Travel Time vs Vehicle Count")
-scatter_fig = px.scatter(
-    st.session_state.traffic_data, x='vehicle_count', y='travel_time',
-    title="Travel Time vs Vehicle Count",
-    labels={'vehicle_count': 'Vehicle Count', 'travel_time': 'Travel Time (minutes)'},
-    trendline='ols'
-)
-st.plotly_chart(scatter_fig, use_container_width=True)
+# --- Suggested Routes ---
+st.sidebar.subheader("Suggested Routes")
+selected_route = st.sidebar.selectbox("Select Route for Suggestions", routes_df['route_short_name'])
+congested_routes = st.session_state.traffic_data[st.session_state.traffic_data['vehicle_count'] > 50]['route'].unique()
+suggestions = routes_df[~routes_df['route_short_name'].isin(congested_routes)]
+st.sidebar.write(f"Alternate routes for avoiding congestion on {selected_route}:")
+st.sidebar.table(suggestions[['route_short_name', 'route_long_name']])
 
 # --- Refresh Dashboard ---
 refresh_rate = st.sidebar.slider("Refresh Rate (seconds)", 5, 30, 10)
