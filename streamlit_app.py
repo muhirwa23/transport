@@ -1,14 +1,10 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import geopandas as gpd
 from datetime import datetime, timedelta
-import time
-import folium
-from streamlit_folium import st_folium
-from folium.plugins import MarkerCluster
 import plotly.express as px
-from io import StringIO
+import plotly.graph_objects as go
+import time
 
 # --- PAGE CONFIGURATION ---
 st.set_page_config(
@@ -21,10 +17,10 @@ st.set_page_config(
 route_data = """
 route_id,agency_id,route_short_name,route_long_name,route_type,route_desc
 101,1,101,KBS - Zone I - 101,3,Remera Taxi Park-Sonatubes-Rwandex-CBD
-102,1,102,KBS - Zone I - 102,3,Kabuga-Mulindi-Remera-Sonatubes-Rwandex Nyabugogo Taxi Park
-103,1,103,KBS - Zone I - 103,3,Rubilizi-Kabeza-Remera-Sonatubes-Rwandex-CBD
-104,1,104,KBS - Zone I - 104,3,Kibaya-Kanombe MH-Airport-Remera-Sonatubes-Rwandex-CBD
-105,1,105,KBS - Zone I - 105,3,Remera Taxi Park-Chez Lando-Kacyiru-NyabugogoTaxi Park
+102,1,102,Kabuga-Mulindi-Remera-Sonatubes-Rwandex Nyabugogo Taxi Park
+103,1,103,Rubilizi-Kabeza-Remera-Sonatubes-Rwandex-CBD
+104,1,104,Kibaya-Kanombe MH-Airport-Remera-Sonatubes-Rwandex-CBD
+105,1,105,Remera Taxi Park-Chez Lando-Kacyiru-Nyabugogo Taxi Park
 """
 
 @st.cache_data
@@ -33,7 +29,6 @@ def load_route_data():
 
 # Call the function
 routes_df = load_route_data()
-st.dataframe(routes_df)
 
 # --- GENERATE LIVE TRAFFIC DATA ---
 def generate_live_data():
@@ -66,16 +61,44 @@ selected_routes = st.sidebar.multiselect(
 min_vehicle_count = st.sidebar.slider("Minimum Vehicle Count", 0, 100, 20)
 max_travel_time = st.sidebar.slider("Maximum Travel Time (minutes)", 5, 30, 20)
 refresh_rate = st.sidebar.slider("Refresh Rate (seconds)", 1, 10, 5)
-congestion_threshold = st.sidebar.slider("Set Congestion Threshold", 0, 100, 50)
 
-# --- SUGGEST ALTERNATE ROUTES ---
-def suggest_alternate_routes(route):
-    if st.session_state.traffic_data['vehicle_count'].mean() > congestion_threshold:
-        st.warning(f"High congestion detected on {route}. Suggesting alternate routes...")
-        suggestions = routes_df[routes_df['route_short_name'] != route].head(3)
-        st.table(suggestions)
-    else:
-        st.success(f"Traffic on {route} is under control.")
+# --- DYNAMIC CHART ---
+st.subheader("Live Traffic Data")
+
+# Filter traffic data based on the selected routes
+filtered_data = st.session_state.traffic_data[st.session_state.traffic_data['route'].isin(selected_routes)]
+
+# Plot dynamic chart using Plotly
+vehicle_fig = px.line(filtered_data, x='timestamp', y='vehicle_count', color='route',
+                      title="Vehicle Count Over Time", markers=True)
+
+congestion_fig = px.line(filtered_data, x='timestamp', y='congestion', color='route',
+                         title="Congestion Level Over Time", markers=True)
+
+# Display dynamic charts
+st.plotly_chart(vehicle_fig, use_container_width=True)
+st.plotly_chart(congestion_fig, use_container_width=True)
+
+# --- LIVE UPDATING DATA ---
+st.write("Live data updates every", refresh_rate, "seconds.")
+for _ in range(100):  # This loop will simulate continuous updates for the chart
+    new_data = pd.DataFrame([generate_live_data()])
+    st.session_state.traffic_data = pd.concat([st.session_state.traffic_data, new_data]).tail(100)
+    
+    # Update the filtered data and charts
+    filtered_data = st.session_state.traffic_data[st.session_state.traffic_data['route'].isin(selected_routes)]
+    
+    vehicle_fig = px.line(filtered_data, x='timestamp', y='vehicle_count', color='route',
+                          title="Vehicle Count Over Time", markers=True)
+    congestion_fig = px.line(filtered_data, x='timestamp', y='congestion', color='route',
+                             title="Congestion Level Over Time", markers=True)
+
+    # Update the charts in real-time
+    st.plotly_chart(vehicle_fig, use_container_width=True)
+    st.plotly_chart(congestion_fig, use_container_width=True)
+
+    time.sleep(refresh_rate)
+
 
 # --- Sample Data Simulation for Dynamic Map ---
 def generate_random_data():
