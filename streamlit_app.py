@@ -1,10 +1,8 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import folium
-from streamlit_folium import st_folium
-from folium.plugins import MarkerCluster
 import plotly.express as px
+import plotly.graph_objs as go
 import time
 
 # --- Load Route Data ---
@@ -25,7 +23,7 @@ routes_df = load_route_data()
 # --- Initialize Session State ---
 if 'traffic_data' not in st.session_state:
     st.session_state.traffic_data = pd.DataFrame(columns=[
-        'route', 'timestamp', 'vehicle_count', 'travel_time'
+        'route', 'timestamp', 'vehicle_count', 'travel_time', 'latitude', 'longitude'
     ])
 
 # --- Generate Live Data ---
@@ -35,24 +33,13 @@ def generate_live_data():
     vehicle_count = np.random.randint(10, 100)
     travel_time = np.random.uniform(10, 60)
     timestamp = pd.Timestamp.now()
-    return {'route': route, 'timestamp': timestamp, 
-            'vehicle_count': vehicle_count, 'travel_time': travel_time}
-
-# --- Generate Folium Map ---
-def generate_folium_map(data):
-    """Generate a map with traffic congestion markers."""
-    m = folium.Map(location=[-1.9499, 30.0589], zoom_start=13)
-    marker_cluster = MarkerCluster().add_to(m)
-
-    for _, row in data.iterrows():
-        folium.Marker(
-            location=[-1.9499 + np.random.uniform(-0.01, 0.01),
-                      30.0589 + np.random.uniform(-0.01, 0.01)],
-            popup=f"Route: {row['route']}<br>Vehicles: {row['vehicle_count']}<br>Travel Time: {row['travel_time']} min",
-            icon=folium.Icon(color='red' if row['vehicle_count'] > 50 else 'blue', icon='info-sign')
-        ).add_to(marker_cluster)
-
-    return m
+    latitude = -1.9499 + np.random.uniform(-0.01, 0.01)
+    longitude = 30.0589 + np.random.uniform(-0.01, 0.01)
+    return {
+        'route': route, 'timestamp': timestamp, 
+        'vehicle_count': vehicle_count, 'travel_time': travel_time,
+        'latitude': latitude, 'longitude': longitude
+    }
 
 # --- Display UI ---
 st.title("Kigali Traffic Monitoring and Optimization System")
@@ -77,18 +64,32 @@ filtered_data = st.session_state.traffic_data[
     (st.session_state.traffic_data['travel_time'] <= max_travel_time)
 ]
 
-# --- Display the Dynamic Map ---
-st.subheader("Live Traffic Map")
-folium_map = generate_folium_map(filtered_data)
-st_folium(folium_map, width=700, height=500)
+# --- Display the 3D Map with Traffic Data ---
+st.subheader("Live 3D Traffic Map")
+
+fig = px.scatter_3d(
+    filtered_data, 
+    x='longitude', y='latitude', z='vehicle_count',
+    color='vehicle_count',
+    size='travel_time',
+    hover_data=['route', 'timestamp', 'vehicle_count', 'travel_time'],
+    color_continuous_scale=px.colors.sequential.Plasma,
+    title="Traffic Congestion by Route"
+)
+fig.update_layout(scene=dict(
+    xaxis_title='Longitude',
+    yaxis_title='Latitude',
+    zaxis_title='Vehicle Count'
+))
+st.plotly_chart(fig, use_container_width=True)
 
 # --- Plot Real-Time Vehicle Count ---
 st.subheader("Real-Time Vehicle Count")
-fig = px.line(
+line_fig = px.line(
     filtered_data, x='timestamp', y='vehicle_count', 
     title="Real-Time Vehicle Count per Route", markers=True
 )
-st.plotly_chart(fig, use_container_width=True)
+st.plotly_chart(line_fig, use_container_width=True)
 
 # --- Suggest Alternate Routes ---
 st.sidebar.subheader("Suggest Alternate Routes")
