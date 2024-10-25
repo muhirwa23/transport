@@ -17,20 +17,27 @@ st.set_page_config(
 )
 
 # --- LOAD ROUTE DATA ---
+import streamlit as st
+import pandas as pd
+from io import StringIO
+
 route_data = """
 route_id,agency_id,route_short_name,route_long_name,route_type,route_desc
 101,1,101,KBS - Zone I - 101,3,Remera Taxi Park-Sonatubes-Rwandex-CBD
-102,1,102,Kabuga-Mulindi-Remera-Sonatubes-Rwandex Nyabugogo Taxi Park
+102,1,102,KBS - Zone I - 102,3,Kabuga-Mulindi-Remera-Sonatubes-Rwandex Nyabugogo Taxi Park
 103,1,103,KBS - Zone I - 103,3,Rubilizi-Kabeza-Remera-Sonatubes-Rwandex-CBD
 104,1,104,KBS - Zone I - 104,3,Kibaya-Kanombe MH-Airport-Remera-Sonatubes-Rwandex-CBD
-105,1,105,KBS - Zone I - 105,3,Remera Taxi Park-Chez Lando-Kacyiru-Nyabugogo Taxi Park
+105,1,105,KBS - Zone I - 105,3,Remera Taxi Park-Chez Lando-Kacyiru-NyabugogoTaxi Park
 """
 
 @st.cache_data
 def load_route_data():
-    return pd.read_csv(pd.compat.StringIO(route_data))
+    return pd.read_csv(StringIO(route_data))
 
+# Call the function
 routes_df = load_route_data()
+st.dataframe(routes_df)
+
 
 # --- GENERATE LIVE TRAFFIC DATA ---
 def generate_live_data():
