@@ -7,6 +7,7 @@ import time
 import folium
 from streamlit_folium import st_folium
 from folium.plugins import MarkerCluster
+from io import StringIO
 
 # --- PAGE CONFIGURATION ---
 st.set_page_config(
@@ -67,14 +68,19 @@ refresh_rate = st.sidebar.slider("Refresh Rate (seconds)", 1, 10, 5)
 # --- LIVE UPDATING DATA ---
 st.write("Live data updates every", refresh_rate, "seconds.")
 
-# Filter traffic data based on the selected routes
-filtered_data = st.session_state.traffic_data[st.session_state.traffic_data['route'].isin(selected_routes)]
+# Filter traffic data based on the selected routes and conditions
+filtered_data = st.session_state.traffic_data[
+    (st.session_state.traffic_data['route'].isin(selected_routes)) & 
+    (st.session_state.traffic_data['vehicle_count'] >= min_vehicle_count) & 
+    (st.session_state.traffic_data['travel_time'] <= max_travel_time)
+]
 
 # --- PREDICTION FEATURE (Simple Moving Average) ---
 def predict_traffic(data, window=3):
     """Predict future traffic using a simple moving average."""
     data['vehicle_count_pred'] = data['vehicle_count'].rolling(window=window).mean().shift(-1)
-    data['congestion_pred'] = data['congestion'].rolling(window=window).mean().shift(-1)
+    data['congestion_pred'] = data['congestion'].map({"Low": 1, "Moderate": 2, "High": 3}).rolling(window=window).mean().shift(-1)
+    data['congestion_pred'] = data['congestion_pred'].round().map({1: "Low", 2: "Moderate", 3: "High"})
     return data
 
 # Apply prediction
@@ -148,9 +154,13 @@ map_ = create_dynamic_map(st.session_state.map_data)
 st_folium(map_, width=700, height=500)
 
 # --- AUTO-REFRESH TRAFFIC DATA ---
-for _ in range(100):
-    new_data = pd.DataFrame([generate_live_data()])
-    st.session_state.traffic_data = pd.concat([st.session_state.traffic_data, new_data]).tail(100)
-    st.session_state.map_data = generate_random_data()
-    time.sleep(refresh_rate)
-    st.experimental_rerun()
+def auto_refresh_traffic_data():
+    for _ in range(100):
+        new_data = pd.DataFrame([generate_live_data()])
+        st.session_state.traffic_data = pd.concat([st.session_state.traffic_data, new_data]).tail(100)
+        st.session_state.map_data = generate_random_data()
+        time.sleep(refresh_rate)
+        st.experimental_rerun()
+
+st.write("Starting the auto-refresh of live data...")
+auto_refresh_traffic_data()
