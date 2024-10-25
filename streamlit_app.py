@@ -5,7 +5,7 @@ import pydeck as pdk  # For 3D visualization
 import plotly.express as px
 import requests
 import time
-from sklearn.linear_model import LinearRegression
+from sklearn.ensemble import RandomForestRegressor
 
 # --- Initialize Session State ---
 if 'traffic_data' not in st.session_state:
@@ -24,6 +24,15 @@ def load_route_data():
     return pd.read_csv(StringIO(data))
 
 routes_df = load_route_data()
+
+# --- Fetch Weather Data ---
+def fetch_weather_data():
+    API_KEY = "YOUR_OPENWEATHER_API_KEY"
+    url = f"http://api.openweathermap.org/data/2.5/weather?q=Kigali,RW&appid={API_KEY}&units=metric"
+    response = requests.get(url)
+    return response.json()
+
+weather_data = fetch_weather_data()
 
 # --- Simulate Live Traffic Data with Multiple Events ---
 def simulate_event():
@@ -55,10 +64,13 @@ def create_3d_simulation():
         'Damaged Road': [128, 128, 128]  # Gray
     }
 
+    # Prepare data for scatter layer
+    scatter_data = st.session_state.traffic_data.to_dict('records')
+    
     # Scatter layer to visualize events with colors
     scatter_layer = pdk.Layer(
         "ScatterplotLayer",
-        data=st.session_state.traffic_data,
+        data=scatter_data,
         get_position=["longitude", "latitude"],
         get_color=lambda d: color_map.get(d["event"], [0, 255, 0]),
         get_radius=300,
@@ -66,13 +78,13 @@ def create_3d_simulation():
         auto_highlight=True
     )
 
-    # PathLayer to highlight routes where events occur
-    path_data = [
-        {
-            "path": [[d["longitude"], d["latitude"]] for d in st.session_state.traffic_data.to_dict('records')],
-            "color": color_map.get(d["event"], [0, 255, 0])
-        }
-    ]
+    # Prepare path data for highlighting affected routes
+    path_data = []
+    for event in scatter_data:
+        path_data.append({
+            'path': [[event['longitude'], event['latitude']]],
+            'color': color_map.get(event['event'], [0, 255, 0]),
+        })
 
     path_layer = pdk.Layer(
         "PathLayer",
@@ -86,7 +98,7 @@ def create_3d_simulation():
     # TextLayer to label each event on the map
     text_layer = pdk.Layer(
         "TextLayer",
-        data=st.session_state.traffic_data,
+        data=scatter_data,
         get_position=["longitude", "latitude"],
         get_text="event",
         get_size=16,
@@ -98,6 +110,11 @@ def create_3d_simulation():
 
 # --- User Interface ---
 st.title("🚦 Kigali Traffic Monitoring System with Real-Time 3D Event Simulation")
+
+# Display weather information
+st.subheader("🌤️ Current Weather in Kigali")
+st.write(f"Temperature: {weather_data['main']['temp']}°C")
+st.write(f"Weather: {weather_data['weather'][0]['description']}")
 
 # Add new simulated traffic data to the session state
 new_data = simulate_event()
@@ -118,14 +135,14 @@ fig = px.line(
 )
 st.plotly_chart(fig, use_container_width=True)
 
-# Predict Traffic Congestion Using Linear Regression
+# Predict Traffic Congestion Using Random Forest
 def predict_traffic():
     data = st.session_state.traffic_data[['vehicle_count']]
     if len(data) > 10:
-        X = data[['vehicle_count']]
-        y = data['vehicle_count'].rolling(2).mean().fillna(0)
-        model = LinearRegression().fit(X, y)
-        prediction = model.predict([[80]])  # Predict for a vehicle count of 80
+        X = np.array(data.index).reshape(-1, 1)  # Use index as feature
+        y = data['vehicle_count']
+        model = RandomForestRegressor().fit(X, y)
+        prediction = model.predict([[len(data) + 1]])  # Predict next value
         return prediction[0]
     return None
 
