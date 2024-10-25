@@ -139,18 +139,66 @@ def create_dynamic_map(data):
     return folium_map
 
 # --- Streamlit App Layout ---
+import streamlit as st
+import pandas as pd
+import folium
+from streamlit_folium import st_folium
+from folium.plugins import MarkerCluster
+
+# --- Initialize Session State ---
+if 'map_data' not in st.session_state:
+    # Dummy data for accidents and congestion
+    st.session_state.map_data = pd.DataFrame({
+        'latitude': [-1.9441, -1.9493, -1.9535],
+        'longitude': [30.0619, 30.0595, 30.0647],
+        'type': ['Accident', 'Congestion', 'Congestion'],
+        'severity': [3, 2, 4]
+    })
+
+# --- Generate Folium Map ---
+def create_dynamic_map(data):
+    """Generate a Folium map with accident and congestion markers."""
+    # Initialize the map centered at Kigali
+    m = folium.Map(location=[-1.9499, 30.0589], zoom_start=13)
+
+    # Add MarkerCluster to group markers
+    marker_cluster = MarkerCluster().add_to(m)
+
+    # Add markers dynamically based on data
+    for i, row in data.iterrows():
+        if row['type'] == 'Accident':
+            icon_color = 'red'
+        else:  # Congestion
+            icon_color = 'orange'
+
+        folium.Marker(
+            location=[row['latitude'], row['longitude']],
+            popup=f"{row['type']} - Severity: {row['severity']}",
+            icon=folium.Icon(color=icon_color, icon='info-sign')
+        ).add_to(marker_cluster)
+
+    return m
+
+# --- Display the Map in Streamlit ---
 st.title("Kigali Traffic Monitoring and Optimization")
-st.header("Live Map with Congestion and Accidents")
+st.header("Live Map with Accidents and Congestion")
 
 # Create and display the dynamic map
-live_map = create_dynamic_map(st.session_state.map_data)  # Correct function call
-st_folium(live_map, width=700, height=500)
+folium_map = create_dynamic_map(st.session_state.map_data)
+st_folium(folium_map, width=700, height=500)
 
 # --- Refresh Map Data ---
 refresh_rate = st.sidebar.slider("Refresh Rate (seconds)", 5, 30, 10)
 if st.sidebar.button("Refresh Map"):
-    st.session_state.map_data = generate_random_data()
+    # Generate new random data to simulate changes
+    st.session_state.map_data = pd.DataFrame({
+        'latitude': [-1.9441 + (i * 0.001) for i in range(3)],
+        'longitude': [30.0619 + (i * 0.001) for i in range(3)],
+        'type': ['Accident', 'Congestion', 'Congestion'],
+        'severity': [3, 2, 4]
+    })
     st.experimental_rerun()
+
 
 
 
