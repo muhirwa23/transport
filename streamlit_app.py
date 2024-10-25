@@ -25,18 +25,23 @@ def load_route_data():
 routes_df = load_route_data()
 
 # --- Initialize Traffic Data in Session State ---
+# --- Initialize Traffic Data in Session State ---
 if 'traffic_data' not in st.session_state:
+    # Ensure the generate_live_data function is defined and returns a consistent structure
     def generate_initial_data():
         np.random.seed(42)
         data = []
         for _ in range(100):
-            data.append(generate_live_data())
-        return pd.DataFrame(data)
+            live_data = generate_live_data()  # Generate one row of live data
+            data.append(live_data)  # Append to the list
+        # Convert list of dictionaries to DataFrame with consistent columns
+        return pd.DataFrame(data, columns=["timestamp", "vehicle_count", "travel_time", "route", "congestion"])
 
     st.session_state.traffic_data = generate_initial_data()
 
 # --- LIVE DATA GENERATION FUNCTION ---
 def generate_live_data():
+    """Generates one row of live traffic data with consistent keys."""
     vehicle_count = np.random.randint(20, 100)
     travel_time = np.random.uniform(5, 25)
     route = np.random.choice(routes_df['route_short_name'])
@@ -49,6 +54,7 @@ def generate_live_data():
         "route": route,
         "congestion": congestion,
     }
+
 
 # --- Sidebar Filters ---
 st.sidebar.header("Control Panel")
