@@ -5,7 +5,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 import pydeck as pdk
 from sklearn.ensemble import RandomForestRegressor
-import time
+from datetime import datetime, timedelta
 
 # --- Initialize Session State ---
 if 'traffic_data' not in st.session_state:
@@ -36,6 +36,12 @@ def load_route_data():
 
 routes_df = load_route_data()
 
+# --- Sidebar for Route Selection and Date Filtering ---
+selected_route = st.sidebar.selectbox("Select a Route", [route["route"] for route in routes_df])
+st.sidebar.subheader("Date Range Filter")
+start_date = st.sidebar.date_input("Start Date", datetime.now() - timedelta(days=7))
+end_date = st.sidebar.date_input("End Date", datetime.now())
+
 # --- Simulate Live Traffic Data ---
 def simulate_event():
     route = np.random.choice([route["route"] for route in routes_df])
@@ -54,12 +60,24 @@ def simulate_event():
         'average_speed': average_speed
     }
 
+# --- Generate Real-Time Data ---
+if st.sidebar.button("Simulate New Data"):
+    new_data = simulate_event()
+    st.session_state.traffic_data = st.session_state.traffic_data.append(new_data, ignore_index=True)
+
+# Filter data based on selected route and date range
+filtered_data = st.session_state.traffic_data[
+    (st.session_state.traffic_data['route'] == selected_route) &
+    (st.session_state.traffic_data['timestamp'] >= pd.to_datetime(start_date)) &
+    (st.session_state.traffic_data['timestamp'] <= pd.to_datetime(end_date))
+]
+
 # --- Create 3D Simulation with Actual Routes ---
 def create_3d_simulation():
     view_state = pdk.ViewState(latitude=-1.9499, longitude=30.0589, zoom=13, pitch=50)
 
     color_map = {'Accident': [255, 0, 0], 'Traffic Jam': [255, 165, 0], 'Closed Road': [0, 0, 255], 'Damaged Road': [128, 128, 128]}
-    scatter_data = st.session_state.traffic_data.to_dict('records')
+    scatter_data = filtered_data.to_dict('records')
 
     scatter_layer = pdk.Layer(
         "ScatterplotLayer", data=scatter_data, get_position=["longitude", "latitude"],
@@ -97,43 +115,49 @@ def predict_traffic_jam():
 # --- User Interface ---
 st.title("Kigali Transport Optimization Dashboard")
 
-col1, col2, col3 = st.columns(3)
-with col1:
-    st.metric("Latest Vehicle Count", int(st.session_state.traffic_data['vehicle_count'].iloc[-1]) if not st.session_state.traffic_data.empty else 0)
-with col2:
-    st.metric("Average Speed", f"{st.session_state.traffic_data['average_speed'].mean():.2f} km/h" if not st.session_state.traffic_data.empty else "N/A")
-with col3:
-    traffic_prediction = predict_traffic_jam()
-    st.metric("Traffic Jam Prediction", "High" if traffic_prediction and traffic_prediction > 0.5 else "Low")
+# --- Route-Specific Metrics ---
+latest_vehicle_count = int(filtered_data['vehicle_count'].iloc[-1]) if not filtered_data.empty else 0
+average_speed = filtered_data['average_speed'].mean() if not filtered_data.empty else "N/A"
+latest_event = filtered_data['event'].iloc[-1] if not filtered_data.empty else "None"
+traffic_prediction = predict_traffic_jam()
+
+st.sidebar.metric("Route", selected_route)
+st.sidebar.metric("Latest Vehicle Count", latest_vehicle_count)
+st.sidebar.metric("Average Speed", f"{average_speed:.2f} km/h" if isinstance(average_speed, float) else average_speed)
+st.sidebar.metric("Latest Event", latest_event)
+st.sidebar.metric("Traffic Jam Prediction", "High" if traffic_prediction and traffic_prediction > 0.5 else "Low")
 
 # Display Routes on Map
 st.pydeck_chart(create_3d_simulation())
 
-# Simulate New Traffic Data
-new_data = simulate_event()
-st.session_state.traffic_data = st.session_state.traffic_data.append(new_data, ignore_index=True)
-
 # --- Dynamic Plotly Plots ---
-if not st.session_state.traffic_data.empty:
+if not filtered_data.empty:
     # Time-Series Plot: Vehicle Count & Average Speed over Time
     st.subheader("Time-Series of Vehicle Count & Average Speed")
     fig = go.Figure()
-    fig.add_trace(go.Scatter(x=st.session_state.traffic_data['timestamp'], y=st.session_state.traffic_data['vehicle_count'],
+    fig.add_trace(go.Scatter(x=filtered_data['timestamp'], y=filtered_data['vehicle_count'],
                              mode='lines+markers', name='Vehicle Count'))
-    fig.add_trace(go.Scatter(x=st.session_state.traffic_data['timestamp'], y=st.session_state.traffic_data['average_speed'],
+    fig.add_trace(go.Scatter(x=filtered_data['timestamp'], y=filtered_data['average_speed'],
                              mode='lines+markers', name='Average Speed'))
-    fig.update_layout(title="Traffic Analysis Over Time", xaxis_title="Time", yaxis_title="Count / Speed")
+    fig.update_layout(title=f"Traffic Analysis Over Time for {selected_route}", xaxis_title="Time", yaxis_title="Count / Speed")
     st.plotly_chart(fig)
 
     # Event Distribution: Bar Chart
     st.subheader("Event Distribution")
-    event_counts = st.session_state.traffic_data['event'].value_counts()
+    event_counts = filtered_data['event'].value_counts()
     fig2 = px.bar(x=event_counts.index, y=event_counts.values, labels={'x': 'Event Type', 'y': 'Frequency'},
                   title="Distribution of Events")
     st.plotly_chart(fig2)
 
     # Scatter Plot: Average Speed vs Vehicle Count by Event
     st.subheader("Average Speed vs Vehicle Count by Event Type")
-    fig3 = px.scatter(st.session_state.traffic_data, x="vehicle_count", y="average_speed", color="event",
+    fig3 = px.scatter(filtered_data, x="vehicle_count", y="average_speed", color="event",
                       title="Average Speed vs Vehicle Count", labels={"vehicle_count": "Vehicle Count", "average_speed": "Average Speed (km/h)"})
     st.plotly_chart(fig3)
+
+    # Heatmap: Traffic Severity on Route
+    st.subheader("Traffic Heatmap for Route Congestion")
+    fig4 = px.density_mapbox(filtered_data, lat="latitude", lon="longitude", z="vehicle_count", radius=10,
+                             center=dict(lat=-1.9499, lon=30.0589), zoom=12,
+                             mapbox_style="carto-positron", title="Traffic Density by Vehicle Count")
+    st.plotly_chart(fig4)
