@@ -1,6 +1,8 @@
+# Import necessary libraries
 import pandas as pd
 import streamlit as st
 import plotly.express as px
+import plotly.graph_objects as go
 import numpy as np
 import seaborn as sns
 import matplotlib.pyplot as plt
@@ -8,41 +10,45 @@ from sklearn.ensemble import RandomForestRegressor
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import mean_squared_error
 from io import StringIO
-from sklearn.preprocessing import LabelEncoder
-import cv2
-import time
+from sklearn.preprocessing import LabelEncoder, StandardScaler
 import xgboost as xgb
-from sklearn.metrics import mean_squared_error as mse
 from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import LSTM, Dense
+from tensorflow.keras.layers import LSTM, Dense, Dropout
+from statsmodels.tsa.arima.model import ARIMA
 import cityflow
+import time
+import cv2
 
 # Load Simulated Data
 def load_data():
     routes_data = """
     route_id,agency_id,route_short_name,route_long_name,route_type,route_desc
     101,1,101,KBS - Zone I - 101,3,Remera Taxi Park-Sonatubes-Rwandex-CBD
-    102,1,102,KBS - Zone I - 102,3,Kabuga-Mulindi-Remera-Sonatubes-Rwandex Nyabugogo Taxi Park
-    103,1,103,KBS - Zone I - 103,3,Rubilizi-Kabeza-Remera-Sonatubes-Rwandex-CBD
+    102,1,102,KBS - Zone I - 102,3,Kabuga-Mulindi-Remera-Sonatubes-Rwandex
+    103,1,103,KBS - Zone I - 103,3,Rubilizi-Kabeza-Remera-Sonatubes-CBD
+    104,1,104,KBS - Zone I - 104,3,Kanombe-Airport-Sonatubes-CBD
     """
     
     stop_times_data = """
     stop_id,route_id,stop_sequence,arrival_time,departure_time,stop_name
     1,101,1,08:00:00,08:01:00,Remera Taxi Park
     2,101,2,08:05:00,08:06:00,Sonatubes
+    3,102,1,08:10:00,08:11:00,Kabuga
+    4,102,2,08:15:00,08:16:00,Remera
     """
     
     accident_data = {
         "stop_id": [1, 2, 3, 4],
-        "route_id": [101, 101, 102, 102],
+        "route_id": [101, 102, 103, 104],
         "accident_occurred": [1, 0, 1, 0],
-        "severity": [3, 0, 2, 0],
+        "severity": [3, 0, 2, 1]
     }
 
     traffic_congestion_data = {
-        "route_id": [101, 102, 103],
-        "congestion_level": [2, 1, 0],
-        "congestion_desc": ["Heavy traffic", "Moderate traffic", "No traffic"]
+        "route_id": [101, 102, 103, 104],
+        "congestion_level": [2, 1, 0, 2],
+        "avg_vehicle_speed": [15, 30, 45, 12],  # Average speed in km/h
+        "congestion_desc": ["Heavy traffic", "Moderate traffic", "No traffic", "Heavy traffic"]
     }
 
     routes_df = pd.read_csv(StringIO(routes_data))
@@ -52,11 +58,11 @@ def load_data():
 
     return routes_df, stop_times_df, accident_df, traffic_df
 
-# Load data
+# Load Data
 routes_df, stop_times_df, accident_df, traffic_df = load_data()
 
-# Sidebar controls
-st.sidebar.header("Leader Control Panel")
+# Sidebar for route selection and time filtering
+st.sidebar.header("Control Panel")
 selected_routes = st.sidebar.multiselect(
     "Select Routes", 
     options=routes_df['route_long_name'].tolist(), 
@@ -64,51 +70,51 @@ selected_routes = st.sidebar.multiselect(
 )
 time_range = st.sidebar.slider("Select Time Range (Hours)", 0, 24, (0, 24), 1)
 
-# --- CityFlow Integration ---
+# Filter stop times based on user inputs
+filtered_stop_times = stop_times_df[stop_times_df['route_id'].isin(
+    [int(r.split('-')[0]) for r in selected_routes]
+)]
+filtered_stop_times = filtered_stop_times[
+    filtered_stop_times['arrival_time'].str.slice(0, 2).astype(int).between(time_range[0], time_range[1])
+]
+
+# Display filtered data
+st.subheader("Filtered Stop Times")
+st.dataframe(filtered_stop_times)
+
+# --- CityFlow Simulation Integration ---
 st.subheader("CityFlow Traffic Simulation")
 
-# Initialize CityFlow environment
-cityflow_config = {
-    "config": "./traffic_config.json",  # Ensure this JSON config exists locally
-    "steps": 100
-}
-env = cityflow.Engine(cityflow_config["config"], thread_num=4)
+cityflow_config_path = "./traffic_config.json"  # Ensure this config exists locally
+env = cityflow.Engine(cityflow_config_path, thread_num=4)
 
-def run_cityflow_simulation(steps=100):
-    """Run the CityFlow simulation and gather data."""
-    vehicle_counts = []
-    travel_times = []
-    congestion_levels = []
+def run_simulation(steps=100):
+    """Run CityFlow simulation and collect metrics."""
+    vehicle_counts, travel_times, speeds = [], [], []
 
     for _ in range(steps):
         env.next_step()
-        traffic_data = env.get_lane_vehicle_count()  # Get traffic info per lane
+        traffic_data = env.get_lane_vehicle_count()
         
+        # Collect data
         vehicle_counts.append(np.sum(list(traffic_data.values())))
-        travel_times.append(np.random.uniform(10, 60))  # Placeholder for travel time
-        congestion_levels.append(np.random.choice([0, 1, 2]))  # Simulated congestion
+        travel_times.append(np.random.uniform(10, 50))  # Placeholder travel times
+        speeds.append(np.random.uniform(5, 50))  # Placeholder for vehicle speeds
 
-    return vehicle_counts, travel_times, congestion_levels
+    return vehicle_counts, travel_times, speeds
 
-# Run the simulation and display data
-vehicle_counts, travel_times, congestion_levels = run_cityflow_simulation(cityflow_config["steps"])
-st.write(f"Total Vehicles: {sum(vehicle_counts)}")
-st.write(f"Average Travel Time: {np.mean(travel_times):.2f} minutes")
+vehicle_counts, travel_times, speeds = run_simulation(steps=100)
 
-# Time-series plot of congestion levels
-st.subheader("Real-Time Congestion Tracking")
-time_series_fig = px.line(
-    x=list(range(len(congestion_levels))),
-    y=congestion_levels,
-    labels={'x': 'Simulation Step', 'y': 'Congestion Level'},
-    title="Congestion Level Over Time"
-)
-st.plotly_chart(time_series_fig)
+# Plot simulation results
+st.subheader("Simulation Metrics")
+fig = go.Figure()
+fig.add_trace(go.Scatter(x=list(range(100)), y=vehicle_counts, mode='lines', name='Vehicle Count'))
+fig.add_trace(go.Scatter(x=list(range(100)), y=speeds, mode='lines', name='Speed (km/h)'))
+st.plotly_chart(fig)
 
 # --- Advanced Machine Learning Models ---
-st.subheader("Predict Traffic Using Advanced ML Models")
 
-# Prepare data for LSTM model
+# Prepare data for LSTM and ARIMA
 def prepare_lstm_data(data, n_steps=3):
     X, y = [], []
     for i in range(len(data) - n_steps):
@@ -116,28 +122,36 @@ def prepare_lstm_data(data, n_steps=3):
         y.append(data[i + n_steps])
     return np.array(X), np.array(y)
 
-X, y = prepare_lstm_data(congestion_levels)
+X, y = prepare_lstm_data(vehicle_counts)
 
-# Build LSTM model
+# Build LSTM Model
 model = Sequential([
     LSTM(50, activation='relu', input_shape=(X.shape[1], 1)),
+    Dropout(0.2),
     Dense(1)
 ])
 model.compile(optimizer='adam', loss='mse')
+model.fit(X, y, epochs=10, verbose=0)
 
-# Train the LSTM model
-model.fit(X, y, epochs=50, verbose=0)
+# ARIMA Model for Comparison
+arima_model = ARIMA(vehicle_counts, order=(2, 1, 2))
+arima_result = arima_model.fit()
 
-# Make predictions
-predictions = model.predict(X)
-st.write(f"LSTM Predictions: {predictions.flatten().tolist()}")
+# Predictions
+lstm_predictions = model.predict(X)
+arima_predictions = arima_result.forecast(steps=10)
 
-# Display Machine Learning MSE
-rf_mse = mean_squared_error(y, predictions.flatten())
-st.write(f"LSTM Mean Squared Error: {rf_mse:.2f}")
+st.subheader("ML Model Predictions")
+st.write(f"LSTM Predictions: {lstm_predictions.flatten().tolist()}")
+st.write(f"ARIMA Predictions: {arima_predictions.tolist()}")
+
+# --- Route Optimization ---
+st.subheader("Suggested Route Adjustments")
+optimized_routes = traffic_df.sort_values(by='avg_vehicle_speed', ascending=False)
+st.dataframe(optimized_routes)
 
 # Footer
 st.markdown("""
 ### City Leadership Dashboard
-This dashboard integrates **CityFlow simulations** with real-time congestion tracking, and uses advanced machine learning models like **LSTM** for traffic forecasting.
+This dashboard integrates **CityFlow traffic simulations** and **ML models** (LSTM, ARIMA) to predict congestion and suggest route optimizations.
 """)
