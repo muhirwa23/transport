@@ -1,126 +1,186 @@
+# --- Import Required Libraries ---
 import streamlit as st
 import pandas as pd
 import numpy as np
-import pydeck as pdk
 import plotly.graph_objects as go
-import requests
+import plotly.express as px
 from sklearn.ensemble import RandomForestRegressor
-from sklearn.linear_model import LinearRegression
 from sklearn.model_selection import train_test_split
+from sklearn.metrics import mean_squared_error, r2_score
 import time
 
-# --- Initialize Session State ---
-if 'traffic_data' not in st.session_state:
-    st.session_state.traffic_data = pd.DataFrame(columns=[
-        'route', 'timestamp', 'latitude', 'longitude', 'vehicle_count', 'event', 'average_speed'
-    ])
-
-# --- Load Route Data ---
+# --- Simulate Data ---
 @st.cache_data
-def load_route_data():
-    data = """... (same CSV data as above) ..."""
-    from io import StringIO
-    return pd.read_csv(StringIO(data))
-
-routes_df = load_route_data()
-
-# --- Simulate Live Traffic Data ---
-def simulate_event():
-    route = np.random.choice(routes_df['route_short_name'])
-    vehicle_count = np.random.randint(10, 100)
-    average_speed = np.random.uniform(10, 60)
-    latitude, longitude = np.random.uniform(-1.96, -1.93), np.random.uniform(30.05, 30.10)
-    event = np.random.choice(['Accident', 'Traffic Jam', 'Closed Road', 'Damaged Road'])
-
-    return {
-        'route': route,
-        'timestamp': pd.Timestamp.now(),
-        'latitude': latitude,
-        'longitude': longitude,
-        'vehicle_count': vehicle_count,
-        'event': event,
-        'average_speed': average_speed
+def simulate_data(n_samples=1000):
+    """
+    Simulate traffic data for analysis and prediction purposes.
+    
+    Args:
+        n_samples (int): Number of samples to generate.
+    
+    Returns:
+        pandas.DataFrame: A DataFrame with simulated traffic data.
+    """
+    np.random.seed(42)
+    
+    # Simulate traffic data: vehicle count, speed, time, route, lat/lon for mapping
+    routes = ['Kigali - Kanombe', 'Kigali - Nyabugogo', 'Kigali - Kicukiro', 'Kigali - Kimironko', 'Kigali - Remera']
+    latitudes = [1.96, 1.94, 1.92, 1.93, 1.95]
+    longitudes = [30.11, 30.08, 30.12, 30.10, 30.09]
+    
+    data = {
+        'route': np.random.choice(routes, n_samples),
+        'latitude': np.random.choice(latitudes, n_samples),
+        'longitude': np.random.choice(longitudes, n_samples),
+        'vehicle_count': np.random.randint(10, 100, n_samples),
+        'average_speed': np.random.uniform(10, 60, n_samples),
+        'event': np.random.choice(['Accident', 'Traffic Jam', 'Closed Road', 'Damaged Road'], n_samples),
+        'timestamp': pd.date_range(start='2023-01-01', periods=n_samples, freq='H')
     }
+    
+    return pd.DataFrame(data)
 
-# --- Create 3D Simulation ---
-def create_3d_simulation(route_suggestions):
-    view_state = pdk.ViewState(latitude=-1.9499, longitude=30.0589, zoom=13, pitch=50)
+# Load simulated data into session state
+if 'traffic_data' not in st.session_state:
+    st.session_state.traffic_data = simulate_data()
 
-    # Color map for events
-    color_map = {'Accident': [255, 0, 0], 'Traffic Jam': [255, 165, 0], 'Closed Road': [0, 0, 255], 'Damaged Road': [128, 128, 128]}
-
-    scatter_data = st.session_state.traffic_data.to_dict('records')
-
-    scatter_layer = pdk.Layer("ScatterplotLayer", data=scatter_data, get_position=["longitude", "latitude"],
-                              get_color=lambda d: color_map.get(d["event"], [0, 255, 0]), get_radius=300, pickable=True, auto_highlight=True)
-
-    text_layer = pdk.Layer("TextLayer", data=scatter_data, get_position=["longitude", "latitude"], get_text="event",
-                           get_size=16, get_color=[0, 0, 0], pickable=True)
-
-    route_layer = pdk.Layer("PathLayer", data=route_suggestions, get_path="path", get_width=5, get_color=[0, 255, 0], width_min_pixels=2)
-
-    return pdk.Deck(layers=[scatter_layer, text_layer, route_layer], initial_view_state=view_state)
-
-# --- Predict Traffic Jam ---
-def predict_traffic_jam():
-    # Data for predictions
-    features = st.session_state.traffic_data[['vehicle_count', 'average_speed']].dropna()
-    target = np.where(features['vehicle_count'] > 50, 1, 0)  # Define high traffic jam based on vehicle count
-
-    if len(features) >= 10:
-        X_train, X_test, y_train, y_test = train_test_split(features, target, test_size=0.2, random_state=42)
-        model = RandomForestRegressor()
-        model.fit(X_train, y_train)
-        prediction = model.predict(X_test[-1:])[0]
-        return prediction
-    return None
-
-# --- Sidebar Features ---
+# --- Sidebar Settings ---
 st.sidebar.header("Settings")
-st.sidebar.markdown("Control simulation parameters:")
+n_samples = st.sidebar.slider("Number of Samples to Simulate", min_value=500, max_value=5000, value=1000, step=100)
 refresh_rate = st.sidebar.slider("Refresh Rate (seconds)", 5, 30, 10)
-vehicle_threshold = st.sidebar.slider("Vehicle Threshold for Jam Prediction", 10, 100, 50)
+vehicle_threshold = st.sidebar.slider("Vehicle Threshold for Traffic Jam Prediction", 10, 100, 50)
 
-# --- User Interface ---
-st.title("Kigali Transport Optimization Dashboard")
+# --- Title ---
+st.title("Kigali Transport Optimization & Prediction Dashboard")
 
-# Real-time Data Cards
-col1, col2, col3 = st.columns(3)
-with col1:
-    st.metric("Latest Vehicle Count", int(st.session_state.traffic_data['vehicle_count'].iloc[-1]) if not st.session_state.traffic_data.empty else 0)
-with col2:
-    st.metric("Average Speed", f"{st.session_state.traffic_data['average_speed'].mean():.2f} km/h" if not st.session_state.traffic_data.empty else "N/A")
-with col3:
-    traffic_prediction = predict_traffic_jam()
-    st.metric("Traffic Jam Prediction", "High" if traffic_prediction and traffic_prediction > 0.5 else "Low")
+# --- Resimulate Data if Samples Changed ---
+if st.sidebar.button("Resimulate Data"):
+    st.session_state.traffic_data = simulate_data(n_samples)
 
-# Route Suggestion
-start_location = st.text_input("Start Location", placeholder="Enter starting point")
-end_location = st.text_input("End Location", placeholder="Enter destination")
-if st.button("Suggest Route"):
-    route_suggestions = [{"path": [[30.0589, -1.9499], [30.0590, -1.9500]]}, {"path": [[30.0589, -1.9499], [30.0592, -1.9502]]}]
-    st.pydeck_chart(create_3d_simulation(route_suggestions))
+# --- Display Dataframe ---
+st.subheader("Simulated Traffic Data")
+st.dataframe(st.session_state.traffic_data.head())
 
-# Update Traffic Data
-new_data = simulate_event()
-st.session_state.traffic_data = st.session_state.traffic_data.append(new_data, ignore_index=True)
+# --- Predictive Model: Random Forest Regression ---
+def predict_vehicle_count():
+    """
+    Predict vehicle count using a Random Forest Regressor based on speed and event type.
+    
+    Returns:
+        pandas.Series: Predictions for vehicle count.
+        sklearn.ensemble.RandomForestRegressor: Trained model.
+    """
+    # Feature encoding: Convert categorical event type to numeric
+    traffic_data = st.session_state.traffic_data.copy()
+    traffic_data['event_code'] = traffic_data['event'].astype('category').cat.codes
+    
+    X = traffic_data[['average_speed', 'event_code']]
+    y = traffic_data['vehicle_count']
+    
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+    
+    model = RandomForestRegressor()
+    model.fit(X_train, y_train)
+    y_pred = model.predict(X_test)
+    
+    return pd.Series(y_pred, index=X_test.index), model
 
-# Visualization of Vehicle Count and Speed
-if not st.session_state.traffic_data.empty:
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(x=st.session_state.traffic_data['timestamp'], y=st.session_state.traffic_data['vehicle_count'],
-                             mode='lines+markers', name='Vehicle Count'))
-    fig.add_trace(go.Scatter(x=st.session_state.traffic_data['timestamp'], y=st.session_state.traffic_data['average_speed'],
-                             mode='lines+markers', name='Average Speed'))
-    fig.update_layout(title="Traffic Analysis Over Time", xaxis_title="Time", yaxis_title="Count / Speed")
-    st.plotly_chart(fig)
+# --- Prediction ---
+st.subheader("Traffic Prediction: Vehicle Count")
+predictions, model = predict_vehicle_count()
 
-# New Bar Plot for Events
-event_counts = st.session_state.traffic_data['event'].value_counts()
-fig2 = go.Figure([go.Bar(x=event_counts.index, y=event_counts.values)])
-fig2.update_layout(title="Event Distribution", xaxis_title="Event Type", yaxis_title="Frequency")
-st.plotly_chart(fig2)
+# --- Display Model Evaluation ---
+st.markdown("### Model Evaluation")
+mse = mean_squared_error(st.session_state.traffic_data['vehicle_count'][predictions.index], predictions)
+r2 = r2_score(st.session_state.traffic_data['vehicle_count'][predictions.index], predictions)
+st.write(f"Mean Squared Error: {mse:.2f}")
+st.write(f"R-Squared: {r2:.2f}")
 
-# Refresh dashboard
+# --- Dynamic Predictive Model Chart ---
+st.subheader("Dynamic Prediction vs Actual: Vehicle Count")
+fig = go.Figure()
+
+# Dropdown for dynamic filtering
+selected_route = st.selectbox("Select a Route to Display:", st.session_state.traffic_data['route'].unique())
+
+# Filter by selected route
+filtered_data = st.session_state.traffic_data[st.session_state.traffic_data['route'] == selected_route]
+predictions_filtered = predictions[filtered_data.index]
+
+fig.add_trace(go.Scatter(
+    x=filtered_data['timestamp'],
+    y=filtered_data['vehicle_count'],
+    mode='lines+markers', name='Actual'
+))
+fig.add_trace(go.Scatter(
+    x=filtered_data['timestamp'],
+    y=predictions_filtered, mode='lines+markers', name='Predicted'
+))
+fig.update_layout(title=f"Actual vs Predicted Vehicle Count for {selected_route}", 
+                  xaxis_title="Time", yaxis_title="Vehicle Count")
+st.plotly_chart(fig)
+
+# --- Dynamic 3D Map Visualization ---
+st.subheader("3D Map Visualization of Routes")
+fig_map = go.Figure()
+
+# Add 3D scatter for lat/lon of routes
+fig_map.add_trace(go.Scatter3d(
+    x=st.session_state.traffic_data['longitude'], 
+    y=st.session_state.traffic_data['latitude'], 
+    z=st.session_state.traffic_data['vehicle_count'],
+    mode='markers',
+    marker=dict(size=5, color=st.session_state.traffic_data['vehicle_count'], colorscale='Viridis', opacity=0.8),
+    text=st.session_state.traffic_data['route'], 
+    hoverinfo='text+x+y+z'
+))
+
+fig_map.update_layout(
+    scene=dict(
+        xaxis_title='Longitude',
+        yaxis_title='Latitude',
+        zaxis_title='Vehicle Count'
+    ),
+    title="3D Map Visualization of Traffic Routes"
+)
+
+st.plotly_chart(fig_map)
+
+# --- Additional Exploratory Charts ---
+st.subheader("Exploratory Data Analysis (EDA)")
+
+# Histogram of Vehicle Counts
+st.markdown("### Histogram of Vehicle Counts")
+fig_hist = px.histogram(st.session_state.traffic_data, x="vehicle_count", nbins=30)
+st.plotly_chart(fig_hist)
+
+# Event Distribution
+st.markdown("### Event Type Distribution")
+fig_bar = px.bar(st.session_state.traffic_data['event'].value_counts(), 
+                 labels={'index': 'Event Type', 'value': 'Count'}, title="Event Distribution")
+st.plotly_chart(fig_bar)
+
+# Scatter Plot: Speed vs Vehicle Count
+st.markdown("### Scatter Plot: Speed vs Vehicle Count")
+fig_scatter = px.scatter(st.session_state.traffic_data, x='average_speed', y='vehicle_count', color='event', 
+                         labels={'average_speed': 'Average Speed (km/h)', 'vehicle_count': 'Vehicle Count'},
+                         title="Speed vs Vehicle Count")
+st.plotly_chart(fig_scatter)
+
+# Time Series of Vehicle Count and Speed
+st.subheader("Time Series Analysis")
+fig_time = go.Figure()
+fig_time.add_trace(go.Scatter(
+    x=st.session_state.traffic_data['timestamp'], y=st.session_state.traffic_data['vehicle_count'],
+    mode='lines+markers', name='Vehicle Count'
+))
+fig_time.add_trace(go.Scatter(
+    x=st.session_state.traffic_data['timestamp'], y=st.session_state.traffic_data['average_speed'],
+    mode='lines+markers', name='Average Speed'
+))
+fig_time.update_layout(title="Time Series of Vehicle Count and Speed", xaxis_title="Time", yaxis_title="Count / Speed")
+st.plotly_chart(fig_time)
+
+# --- Refresh the Dashboard at the Defined Rate ---
 time.sleep(refresh_rate)
 st.experimental_rerun()
