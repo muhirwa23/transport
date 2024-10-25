@@ -1,111 +1,107 @@
 import streamlit as st
 import pandas as pd
+import numpy as np
 import folium
 from streamlit_folium import st_folium
 from folium.plugins import MarkerCluster
 import plotly.express as px
 import time
 
+# --- Load Route Data ---
+@st.cache_data
+def load_route_data():
+    """Load the complete route data."""
+    data = """route_id,agency_id,route_short_name,route_long_name,route_type,route_desc
+    101,1,101,KBS - Zone I - 101,3,Remera Taxi Park-Sonatubes-Rwandex-CBD
+    102,1,102,Kabuga-Mulindi-Remera-Sonatubes-Rwandex-Nyabugogo Taxi Park
+    ... (shortened for brevity, include your full dataset here)
+    212,2,212,ROYAL - Zone II - 212,3,St. Joseph-Kicukiro Centre-Sonatubes-Rwandex-Nyabugogo Taxi Park
+    """
+    from io import StringIO
+    return pd.read_csv(StringIO(data))
+
+routes_df = load_route_data()
+
 # --- Initialize Session State ---
 if 'traffic_data' not in st.session_state:
-    st.session_state.traffic_data = pd.DataFrame({
-        'timestamp': pd.to_datetime(['2024-10-24 10:00:00', '2024-10-24 10:05:00', '2024-10-24 10:10:00']),
-        'latitude': [-1.9441, -1.9493, -1.9535],
-        'longitude': [30.0619, 30.0595, 30.0647],
-        'type': ['Accident', 'Congestion', 'Congestion'],
-        'severity': [3, 2, 4],
-        'route': ['Route A', 'Route B', 'Route C'],
-        'vehicle_count': [10, 20, 30],
-        'travel_time': [15, 25, 10]
-    })
+    st.session_state.traffic_data = pd.DataFrame(columns=[
+        'route', 'timestamp', 'vehicle_count', 'travel_time'
+    ])
 
-routes_df = pd.DataFrame({'route_short_name': ['Route A', 'Route B', 'Route C']})
+# --- Generate Live Data ---
+def generate_live_data():
+    """Simulate live traffic data."""
+    route = np.random.choice(routes_df['route_short_name'])
+    vehicle_count = np.random.randint(10, 100)
+    travel_time = np.random.uniform(10, 60)
+    timestamp = pd.Timestamp.now()
+    return {'route': route, 'timestamp': timestamp, 
+            'vehicle_count': vehicle_count, 'travel_time': travel_time}
 
 # --- Generate Folium Map ---
 def generate_folium_map(data):
-    """Generate a dynamic Folium map with accident and congestion markers."""
-    # Initialize map centered at Kigali with a fixed zoom level
-    m = folium.Map(location=[-1.9499, 30.0589], zoom_start=13, control_scale=True)
-
+    """Generate a map with traffic congestion markers."""
+    m = folium.Map(location=[-1.9499, 30.0589], zoom_start=13)
     marker_cluster = MarkerCluster().add_to(m)
 
     for _, row in data.iterrows():
-        icon_color = 'red' if row['type'] == 'Accident' else 'orange'
         folium.Marker(
-            location=[row['latitude'], row['longitude']],
-            popup=f"{row['type']} - Severity: {row['severity']}",
-            icon=folium.Icon(color=icon_color, icon='info-sign')
+            location=[-1.9499 + np.random.uniform(-0.01, 0.01),
+                      30.0589 + np.random.uniform(-0.01, 0.01)],
+            popup=f"Route: {row['route']}<br>Vehicles: {row['vehicle_count']}<br>Travel Time: {row['travel_time']} min",
+            icon=folium.Icon(color='red' if row['vehicle_count'] > 50 else 'blue', icon='info-sign')
         ).add_to(marker_cluster)
 
     return m
 
-# --- Generate Live Traffic Data ---
-def generate_live_data():
-    """Simulate new traffic data."""
-    new_data = {
-        'timestamp': pd.Timestamp.now(),
-        'latitude': -1.9441 + (0.001 * pd.np.random.randn()),
-        'longitude': 30.0619 + (0.001 * pd.np.random.randn()),
-        'type': pd.np.random.choice(['Accident', 'Congestion']),
-        'severity': pd.np.random.randint(1, 5),
-        'route': pd.np.random.choice(['Route A', 'Route B', 'Route C']),
-        'vehicle_count': pd.np.random.randint(5, 50),
-        'travel_time': pd.np.random.randint(5, 30)
-    }
-    return new_data
+# --- Display UI ---
+st.title("Kigali Traffic Monitoring and Optimization System")
 
-# --- Suggest Alternate Routes ---
-def suggest_alternate_routes(selected_route):
-    """Provide alternate routes based on current route selection."""
-    st.sidebar.markdown("### Suggested Alternate Routes:")
-    other_routes = routes_df[routes_df['route_short_name'] != selected_route]
-    for route in other_routes['route_short_name']:
-        st.sidebar.write(f"- {route}")
+# --- Route Selection ---
+selected_routes = st.sidebar.multiselect(
+    "Select Routes", routes_df['route_short_name'].unique(), default=[]
+)
+min_vehicle_count = st.sidebar.slider("Min Vehicle Count", 0, 100, 10)
+max_travel_time = st.sidebar.slider("Max Travel Time (minutes)", 10, 60, 30)
 
-# --- Main Application Logic ---
-st.title("Kigali Traffic Optimization System")
-
-# Generate and append new traffic data
+# --- Generate and Update Traffic Data ---
 new_data = generate_live_data()
 st.session_state.traffic_data = pd.concat(
     [st.session_state.traffic_data, pd.DataFrame([new_data])], ignore_index=True
 ).tail(50)
 
-# User Inputs for Filtering Data
-selected_routes = st.multiselect("Select Routes", routes_df['route_short_name'], default=routes_df['route_short_name'])
-min_vehicle_count = st.slider("Minimum Vehicle Count", 0, 50, 10)
-max_travel_time = st.slider("Maximum Travel Time (minutes)", 5, 30, 20)
-
-# Filter Data Based on Inputs
+# --- Filter Data Based on User Inputs ---
 filtered_data = st.session_state.traffic_data[
     (st.session_state.traffic_data['route'].isin(selected_routes)) &
     (st.session_state.traffic_data['vehicle_count'] >= min_vehicle_count) &
     (st.session_state.traffic_data['travel_time'] <= max_travel_time)
 ]
 
-# Display the Embedded Folium Map
-st.header("Live Map with Accidents and Congestion")
+# --- Display the Dynamic Map ---
+st.subheader("Live Traffic Map")
 folium_map = generate_folium_map(filtered_data)
+st_folium(folium_map, width=700, height=500)
 
-# Ensure the map stays embedded and doesn't pop out
-st_folium(folium_map, width=700, height=500, returned_objects=[])
-
-# Plot Real-Time Vehicle Count using Plotly
+# --- Plot Real-Time Vehicle Count ---
+st.subheader("Real-Time Vehicle Count")
 fig = px.line(
-    filtered_data, x='timestamp', y='vehicle_count',
-    title="Real-Time Vehicle Count", markers=True
+    filtered_data, x='timestamp', y='vehicle_count', 
+    title="Real-Time Vehicle Count per Route", markers=True
 )
 st.plotly_chart(fig, use_container_width=True)
 
-# Suggest Alternate Routes
+# --- Suggest Alternate Routes ---
+st.sidebar.subheader("Suggest Alternate Routes")
 selected_route = st.sidebar.selectbox("Select Route", routes_df['route_short_name'])
-suggest_alternate_routes(selected_route)
+st.sidebar.write(f"Alternate routes for {selected_route}:")
+alternate_routes = routes_df[routes_df['route_short_name'] != selected_route]
+st.sidebar.write(alternate_routes[['route_short_name', 'route_long_name']])
 
-# Refresh the Dashboard Periodically
+# --- Refresh Dashboard ---
 refresh_rate = st.sidebar.slider("Refresh Rate (seconds)", 5, 30, 10)
-if st.sidebar.button("Refresh Map"):
+if st.sidebar.button("Refresh Now"):
     st.experimental_rerun()
 
-# Periodic Refresh Logic
+# --- Periodic Refresh Logic ---
 time.sleep(refresh_rate)
 st.experimental_rerun()
