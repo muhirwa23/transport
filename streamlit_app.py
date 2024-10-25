@@ -1,12 +1,11 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
+import seaborn as sns
+import matplotlib.pyplot as plt
 import pydeck as pdk
 import plotly.graph_objects as go
-import requests
 from sklearn.ensemble import RandomForestRegressor
-from sklearn.linear_model import LinearRegression
-from sklearn.model_selection import train_test_split
 import time
 
 # --- Initialize Session State ---
@@ -15,18 +14,40 @@ if 'traffic_data' not in st.session_state:
         'route', 'timestamp', 'latitude', 'longitude', 'vehicle_count', 'event', 'average_speed'
     ])
 
-# --- Load Route Data ---
+# --- Load Route Data with Coordinates ---
 @st.cache_data
 def load_route_data():
-    data = """... (same CSV data as above) ..."""
-    from io import StringIO
-    return pd.read_csv(StringIO(data))
+    # Sample routes with actual coordinates for each path point
+    routes_data = [
+        {
+            "route": "Route A",
+            "coordinates": [
+                [30.0605, -1.9441], [30.0615, -1.9451], [30.0625, -1.9461], [30.0635, -1.9471]
+            ],
+            "description": "Test Route A - Sample Path"
+        },
+        {
+            "route": "Route B",
+            "coordinates": [
+                [30.0689, -1.9425], [30.0699, -1.9435], [30.0709, -1.9445], [30.0719, -1.9455]
+            ],
+            "description": "Test Route B - Sample Path"
+        },
+        {
+            "route": "Route C",
+            "coordinates": [
+                [30.0550, -1.9500], [30.0560, -1.9510], [30.0570, -1.9520], [30.0580, -1.9530]
+            ],
+            "description": "Test Route C - Sample Path"
+        },
+    ]
+    return routes_data
 
 routes_df = load_route_data()
 
 # --- Simulate Live Traffic Data ---
 def simulate_event():
-    route = np.random.choice(routes_df['route_short_name'])
+    route = np.random.choice([route["route"] for route in routes_df])
     vehicle_count = np.random.randint(10, 100)
     average_speed = np.random.uniform(10, 60)
     latitude, longitude = np.random.uniform(-1.96, -1.93), np.random.uniform(30.05, 30.10)
@@ -42,49 +63,50 @@ def simulate_event():
         'average_speed': average_speed
     }
 
-# --- Create 3D Simulation ---
-def create_3d_simulation(route_suggestions):
+# --- Create 3D Simulation with Actual Routes ---
+def create_3d_simulation():
     view_state = pdk.ViewState(latitude=-1.9499, longitude=30.0589, zoom=13, pitch=50)
 
-    # Color map for events
     color_map = {'Accident': [255, 0, 0], 'Traffic Jam': [255, 165, 0], 'Closed Road': [0, 0, 255], 'Damaged Road': [128, 128, 128]}
-
     scatter_data = st.session_state.traffic_data.to_dict('records')
 
-    scatter_layer = pdk.Layer("ScatterplotLayer", data=scatter_data, get_position=["longitude", "latitude"],
-                              get_color=lambda d: color_map.get(d["event"], [0, 255, 0]), get_radius=300, pickable=True, auto_highlight=True)
+    scatter_layer = pdk.Layer(
+        "ScatterplotLayer", data=scatter_data, get_position=["longitude", "latitude"],
+        get_color=lambda d: color_map.get(d["event"], [0, 255, 0]), get_radius=300,
+        pickable=True, auto_highlight=True
+    )
 
-    text_layer = pdk.Layer("TextLayer", data=scatter_data, get_position=["longitude", "latitude"], get_text="event",
-                           get_size=16, get_color=[0, 0, 0], pickable=True)
+    text_layer = pdk.Layer(
+        "TextLayer", data=scatter_data, get_position=["longitude", "latitude"], get_text="event",
+        get_size=16, get_color=[0, 0, 0], pickable=True
+    )
 
-    route_layer = pdk.Layer("PathLayer", data=route_suggestions, get_path="path", get_width=5, get_color=[0, 255, 0], width_min_pixels=2)
+    # Route Layer with Actual Coordinates
+    route_layers = []
+    for route in routes_df:
+        route_layer = pdk.Layer(
+            "PathLayer", data=[{"path": route["coordinates"]}], get_path="path",
+            get_width=5, get_color=[0, 255, 0], width_min_pixels=2
+        )
+        route_layers.append(route_layer)
 
-    return pdk.Deck(layers=[scatter_layer, text_layer, route_layer], initial_view_state=view_state)
+    return pdk.Deck(layers=[scatter_layer, text_layer] + route_layers, initial_view_state=view_state)
 
 # --- Predict Traffic Jam ---
 def predict_traffic_jam():
-    # Data for predictions
-    features = st.session_state.traffic_data[['vehicle_count', 'average_speed']].dropna()
-    target = np.where(features['vehicle_count'] > 50, 1, 0)  # Define high traffic jam based on vehicle count
+    if len(st.session_state.traffic_data) < 10:
+        return None
 
-    if len(features) >= 10:
-        X_train, X_test, y_train, y_test = train_test_split(features, target, test_size=0.2, random_state=42)
-        model = RandomForestRegressor()
-        model.fit(X_train, y_train)
-        prediction = model.predict(X_test[-1:])[0]
-        return prediction
-    return None
+    X = st.session_state.traffic_data[['vehicle_count', 'average_speed']].dropna()
+    y = np.where(X['vehicle_count'] > 50, 1, 0)
 
-# --- Sidebar Features ---
-st.sidebar.header("Settings")
-st.sidebar.markdown("Control simulation parameters:")
-refresh_rate = st.sidebar.slider("Refresh Rate (seconds)", 5, 30, 10)
-vehicle_threshold = st.sidebar.slider("Vehicle Threshold for Jam Prediction", 10, 100, 50)
+    model = RandomForestRegressor()
+    model.fit(X, y)
+    return model.predict([[60, 40]])[0]  # Example input
 
 # --- User Interface ---
 st.title("Kigali Transport Optimization Dashboard")
 
-# Real-time Data Cards
 col1, col2, col3 = st.columns(3)
 with col1:
     st.metric("Latest Vehicle Count", int(st.session_state.traffic_data['vehicle_count'].iloc[-1]) if not st.session_state.traffic_data.empty else 0)
@@ -94,33 +116,24 @@ with col3:
     traffic_prediction = predict_traffic_jam()
     st.metric("Traffic Jam Prediction", "High" if traffic_prediction and traffic_prediction > 0.5 else "Low")
 
-# Route Suggestion
-start_location = st.text_input("Start Location", placeholder="Enter starting point")
-end_location = st.text_input("End Location", placeholder="Enter destination")
-if st.button("Suggest Route"):
-    route_suggestions = [{"path": [[30.0589, -1.9499], [30.0590, -1.9500]]}, {"path": [[30.0589, -1.9499], [30.0592, -1.9502]]}]
-    st.pydeck_chart(create_3d_simulation(route_suggestions))
+# Display Routes on Map
+st.pydeck_chart(create_3d_simulation())
 
-# Update Traffic Data
 new_data = simulate_event()
 st.session_state.traffic_data = st.session_state.traffic_data.append(new_data, ignore_index=True)
 
-# Visualization of Vehicle Count and Speed
+# --- Seaborn Visualization: FacetGrid, Swarmplot, and Relplot ---
 if not st.session_state.traffic_data.empty:
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(x=st.session_state.traffic_data['timestamp'], y=st.session_state.traffic_data['vehicle_count'],
-                             mode='lines+markers', name='Vehicle Count'))
-    fig.add_trace(go.Scatter(x=st.session_state.traffic_data['timestamp'], y=st.session_state.traffic_data['average_speed'],
-                             mode='lines+markers', name='Average Speed'))
-    fig.update_layout(title="Traffic Analysis Over Time", xaxis_title="Time", yaxis_title="Count / Speed")
-    st.plotly_chart(fig)
+    st.subheader("Vehicle Count by Event Type")
+    facet_grid_fig = sns.FacetGrid(st.session_state.traffic_data, col="event", height=3, aspect=1)
+    facet_grid_fig.map_dataframe(sns.histplot, x="vehicle_count", kde=True)
+    st.pyplot(facet_grid_fig)
 
-# New Bar Plot for Events
-event_counts = st.session_state.traffic_data['event'].value_counts()
-fig2 = go.Figure([go.Bar(x=event_counts.index, y=event_counts.values)])
-fig2.update_layout(title="Event Distribution", xaxis_title="Event Type", yaxis_title="Frequency")
-st.plotly_chart(fig2)
+    st.subheader("Swarmplot of Average Speed per Event Type")
+    plt.figure(figsize=(10, 5))
+    swarm_fig = sns.swarmplot(x="event", y="average_speed", data=st.session_state.traffic_data)
+    st.pyplot(swarm_fig.figure)
 
-# Refresh dashboard
-time.sleep(refresh_rate)
-st.experimental_rerun()
+    st.subheader("Vehicle Count Over Time by Event Type")
+    rel_fig = sns.relplot(x="timestamp", y="vehicle_count", hue="event", kind="line", data=st.session_state.traffic_data, height=5, aspect=2)
+    st.pyplot(rel_fig)
