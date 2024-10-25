@@ -72,7 +72,7 @@ st.session_state.event_data = pd.concat(
 ).tail(20)
 
 # --- KPI Cards ---
-st.header("🚗 Key Performance Indicators")
+st.header("Key Performance Indicators")
 col1, col2, col3 = st.columns(3)
 
 with col1:
@@ -88,7 +88,10 @@ with col3:
     st.metric("Congestion Level", congestion_level)
 
 # --- 3D Map of Kigali ---
-st.subheader("🌍 Real-Time Event Tracking in Kigali")
+import streamlit as st
+import plotly.graph_objects as go
+
+st.subheader("Traffic Event Tracking in Kigali")
 
 fig_map = go.Figure(go.Scattermapbox(
     lat=st.session_state.event_data['latitude'],
@@ -105,7 +108,7 @@ fig_map = go.Figure(go.Scattermapbox(
 
 fig_map.update_layout(
     mapbox=dict(
-        style="stamen-terrain",  # Terrain style for better visibility
+        style="carto-positron",  # Change to a lighter style
         center=dict(lat=-1.9499, lon=30.0589),  # Kigali's coordinates
         zoom=12
     ),
@@ -114,6 +117,7 @@ fig_map.update_layout(
 )
 
 st.plotly_chart(fig_map, use_container_width=True)
+
 
 # --- Real-Time Vehicle Count Chart ---
 st.subheader("📈 Real-Time Vehicle Count")
