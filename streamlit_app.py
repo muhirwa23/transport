@@ -1,123 +1,172 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import pydeck as pdk  # For 3D visualization
+from datetime import datetime, timedelta
 import plotly.express as px
-import requests
-from sklearn.linear_model import LinearRegression
+import plotly.graph_objects as go
 import time
 
-# --- Initialize Session State ---
-if 'traffic_data' not in st.session_state:
-    st.session_state.traffic_data = pd.DataFrame(columns=[
-        'route', 'timestamp', 'latitude', 'longitude', 'vehicle_count', 'event'
-    ])
+# --- PAGE CONFIGURATION ---
+st.set_page_config(
+    page_title="Kigali Traffic Optimization",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
 
-if 'predicted_data' not in st.session_state:
-    st.session_state.predicted_data = pd.DataFrame()
+# --- LOAD ROUTE DATA ---
+route_data = """
+route_id,agency_id,route_short_name,route_long_name,route_type,route_desc
+101,1,101,KBS - Zone I - 101,3,Remera Taxi Park-Sonatubes-Rwandex-CBD
+102,1,102,Kabuga-Mulindi-Remera-Sonatubes-Rwandex Nyabugogo Taxi Park
+103,1,103,Rubilizi-Kabeza-Remera-Sonatubes-Rwandex-CBD
+104,1,104,Kibaya-Kanombe MH-Airport-Remera-Sonatubes-Rwandex-CBD
+105,1,105,Remera Taxi Park-Chez Lando-Kacyiru-Nyabugogo Taxi Park
+"""
 
-# --- Load Route Data ---
 @st.cache_data
 def load_route_data():
-    data = """route_id,agency_id,route_short_name,route_long_name,route_type,route_desc
-    101,1,101,Remera Taxi Park-Sonatubes-Rwandex-CBD,3,Zone I
-    ...(additional routes here)...
-    """
-    from io import StringIO
-    return pd.read_csv(StringIO(data))
+    return pd.read_csv(StringIO(route_data))
 
+# Call the function
 routes_df = load_route_data()
 
-# --- Simulate Live Traffic Data ---
-def simulate_event():
+# --- GENERATE LIVE TRAFFIC DATA ---
+def generate_live_data():
+    """Simulate real-time traffic data with congestion and incidents."""
+    np.random.seed(int(datetime.now().timestamp()))
+    vehicle_count = np.random.randint(20, 100)
+    travel_time = np.random.uniform(5, 25)
     route = np.random.choice(routes_df['route_short_name'])
-    vehicle_count = np.random.randint(10, 100)
-    latitude, longitude = np.random.uniform(-1.96, -1.93), np.random.uniform(30.05, 30.10)
-    event = np.random.choice(['Accident', 'Congestion', 'Clear'])
-
+    congestion = np.random.choice(["Low", "Moderate", "High"])
+    incident = np.random.choice(["None", "Accident", "Roadblock"], p=[0.8, 0.15, 0.05])
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     return {
-        'route': route,
-        'timestamp': pd.Timestamp.now(),
-        'latitude': latitude,
-        'longitude': longitude,
-        'vehicle_count': vehicle_count,
-        'event': event
+        "timestamp": timestamp,
+        "vehicle_count": vehicle_count,
+        "travel_time": travel_time,
+        "route": route,
+        "congestion": congestion,
+        "incident": incident
     }
 
-# --- Predict Traffic Congestion ---
-def predict_traffic():
-    data = st.session_state.traffic_data[['vehicle_count']]
-    if len(data) > 10:
-        X = data[['vehicle_count']]
-        y = data['vehicle_count'].rolling(2).mean().fillna(0)  # Simplified predictor
-        model = LinearRegression().fit(X, y)
-        prediction = model.predict([[80]])  # Predict for a vehicle count of 80
-        st.session_state.predicted_data = pd.DataFrame({
-            'Predicted Vehicle Count': prediction, 'Timestamp': [pd.Timestamp.now()]
-        })
+# --- INITIALIZE SESSION STATE ---
+if 'traffic_data' not in st.session_state:
+    st.session_state.traffic_data = pd.DataFrame([generate_live_data() for _ in range(10)])
 
-# --- Create 3D Map Simulation with Pydeck ---
-def create_3d_simulation():
-    # View state settings for the 3D map
-    view_state = pdk.ViewState(
-        latitude=-1.9499, longitude=30.0589, zoom=13, pitch=50
-    )
-
-    # Scatter plot layer simulating events
-    scatter_layer = pdk.Layer(
-        "ScatterplotLayer",
-        data=st.session_state.traffic_data,
-        get_position=["longitude", "latitude"],
-        get_color="[255, 0, 0, 160]" if st.session_state.traffic_data['event'].eq('Accident').any() 
-                  else "[0, 128, 0, 160]",  # Red for accidents, green otherwise
-        get_radius=200,
-        pickable=True,
-        auto_highlight=True
-    )
-
-    # Text layer showing live event labels
-    text_layer = pdk.Layer(
-        "TextLayer",
-        data=st.session_state.traffic_data,
-        get_position=["longitude", "latitude"],
-        get_text="event",
-        get_size=20,
-        get_color="[0, 0, 0]",
-        get_angle=0,
-        pickable=True
-    )
-
-    return pdk.Deck(layers=[scatter_layer, text_layer], initial_view_state=view_state)
-
-# --- User Interface ---
-st.title("🚦 Kigali Traffic Monitoring System with Real-Time 3D Simulation")
-
-# Add new traffic data to the session state
-new_data = simulate_event()
-st.session_state.traffic_data = pd.concat(
-    [st.session_state.traffic_data, pd.DataFrame([new_data])], ignore_index=True
-).tail(100)  # Keep the latest 100 events
-
-# Display 3D Map Simulation
-st.subheader("🗺️ Real-Time 3D Simulation of Traffic Events")
-st.pydeck_chart(create_3d_simulation())
-
-# Plot Real-Time Vehicle Count Trends
-st.subheader("📈 Real-Time Vehicle Count Trends")
-fig = px.line(
-    st.session_state.traffic_data, 
-    x='timestamp', y='vehicle_count', 
-    title="Vehicle Count over Time", markers=True
+# --- SIDEBAR FILTERS ---
+st.sidebar.header("Control Panel")
+selected_routes = st.sidebar.multiselect(
+    "Select Routes", routes_df['route_short_name'], default=routes_df['route_short_name'].tolist()
 )
-st.plotly_chart(fig, use_container_width=True)
+min_vehicle_count = st.sidebar.slider("Minimum Vehicle Count", 0, 100, 20)
+max_travel_time = st.sidebar.slider("Maximum Travel Time (minutes)", 5, 30, 20)
+refresh_rate = st.sidebar.slider("Refresh Rate (seconds)", 1, 10, 5)
 
-# Predict and Display Congestion Forecast
-st.subheader("🔮 Traffic Prediction")
-predict_traffic()
-if not st.session_state.predicted_data.empty:
-    st.write(st.session_state.predicted_data)
+# --- DYNAMIC CHART ---
+st.subheader("Live Traffic Data")
 
-# Refresh the dashboard periodically
-refresh_rate = st.sidebar.slider("Refresh Rate (seconds)", 5, 30, 10)
-time.sleep(refresh_rate)
-st.experimental_rerun()
+# Filter traffic data based on the selected routes
+filtered_data = st.session_state.traffic_data[st.session_state.traffic_data['route'].isin(selected_routes)]
+
+# Plot dynamic chart using Plotly
+vehicle_fig = px.line(filtered_data, x='timestamp', y='vehicle_count', color='route',
+                      title="Vehicle Count Over Time", markers=True)
+
+congestion_fig = px.line(filtered_data, x='timestamp', y='congestion', color='route',
+                         title="Congestion Level Over Time", markers=True)
+
+# Display dynamic charts
+st.plotly_chart(vehicle_fig, use_container_width=True)
+st.plotly_chart(congestion_fig, use_container_width=True)
+
+# --- LIVE UPDATING DATA ---
+st.write("Live data updates every", refresh_rate, "seconds.")
+for _ in range(100):  # This loop will simulate continuous updates for the chart
+    new_data = pd.DataFrame([generate_live_data()])
+    st.session_state.traffic_data = pd.concat([st.session_state.traffic_data, new_data]).tail(100)
+    
+    # Update the filtered data and charts
+    filtered_data = st.session_state.traffic_data[st.session_state.traffic_data['route'].isin(selected_routes)]
+    
+    vehicle_fig = px.line(filtered_data, x='timestamp', y='vehicle_count', color='route',
+                          title="Vehicle Count Over Time", markers=True)
+    congestion_fig = px.line(filtered_data, x='timestamp', y='congestion', color='route',
+                             title="Congestion Level Over Time", markers=True)
+
+    # Update the charts in real-time
+    st.plotly_chart(vehicle_fig, use_container_width=True)
+    st.plotly_chart(congestion_fig, use_container_width=True)
+
+    time.sleep(refresh_rate)
+
+
+# --- Sample Data Simulation for Dynamic Map ---
+def generate_random_data():
+    """Generate random data for congestion and accidents."""
+    latitudes = np.random.uniform(-1.96, -1.92, 10)  # Latitude range for Kigali
+    longitudes = np.random.uniform(29.9, 30.0, 10)   # Longitude range for Kigali
+    congestion = np.random.randint(20, 100, 10)      # Congestion percentage
+    accident = np.random.choice([0, 1], 10, p=[0.8, 0.2])  # Accident presence
+    routes = np.random.choice(routes_df['route_short_name'], 10)
+    timestamps = [datetime.now() - timedelta(minutes=i) for i in range(10)]
+
+    return pd.DataFrame({
+        'latitude': latitudes,
+        'longitude': longitudes,
+        'congestion': congestion,
+        'accident': accident,
+        'route': routes,
+        'timestamp': timestamps
+    })
+
+# --- Load or Generate Data ---
+if 'map_data' not in st.session_state:
+    st.session_state.map_data = generate_random_data()    st.session_state.map_data = generate_random_data()
+
+# --- Dynamic Map Function ---
+def create_dynamic_map(data):
+    """Create a dynamic Folium map with congestion and accident markers."""
+    # Initialize a Folium map centered around Kigali
+    folium_map = folium.Map(location=[-1.95, 30.06], zoom_start=12)
+
+    # Use a MarkerCluster for better marker management
+    marker_cluster = MarkerCluster().add_to(folium_map)
+
+    # Add markers to the map
+    for _, row in data.iterrows():
+        popup_text = f"""
+        <b>Route:</b> {row['route']}<br>
+        <b>Congestion:</b> {row['congestion']}%<br>
+        <b>Accident:</b> {"Yes" if row['accident'] else "No"}<br>
+        <b>Time:</b> {row['timestamp']}
+        """
+        icon_color = "red" if row['accident'] else "blue"
+        folium.Marker(
+            location=[row['latitude'], row['longitude']],
+            popup=popup_text,
+            icon=folium.Icon(color=icon_color, icon="info-sign")
+        ).add_to(marker_cluster)
+
+    return folium_map
+
+# --- Streamlit App Layout ---
+st.title("Kigali Traffic Optimization and Monitoring System")
+
+# Display real-time traffic data
+st.subheader("Live Traffic Data")
+st.dataframe(st.session_state.traffic_data)
+
+# Suggest alternate routes for high congestion
+for route in selected_routes:
+    suggest_alternate_routes(route)
+
+# Dynamic map display
+st.subheader("Real-time Traffic Map")
+map_ = create_dynamic_map(st.session_state.map_data)
+st_folium(map_, width=700, height=500)
+
+# Auto-refresh data at the set interval
+if st.button("Refresh Traffic Data"):
+    st.session_state.traffic_data = pd.DataFrame([generate_live_data() for _ in range(10)])
+    st.session_state.map_data = generate_random_data()
+    st.experimental_rerun()
