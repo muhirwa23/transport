@@ -5,8 +5,10 @@ import folium
 from streamlit_folium import st_folium
 from folium.plugins import MarkerCluster, HeatMap
 import plotly.express as px
+import pydeck as pdk  # For 3D map visualization
 import requests
 import time
+from sklearn.linear_model import LinearRegression  # For traffic prediction
 
 # --- Initialize Session State ---
 if 'traffic_data' not in st.session_state:
@@ -17,25 +19,24 @@ if 'traffic_data' not in st.session_state:
 if 'weather_data' not in st.session_state:
     st.session_state.weather_data = None
 
+if 'predicted_data' not in st.session_state:
+    st.session_state.predicted_data = pd.DataFrame()
+
 # --- Load Route Data ---
 @st.cache_data
 def load_route_data():
-    """Load and cache the full route dataset."""
     data = """route_id,agency_id,route_short_name,route_long_name,route_type,route_desc
-    101,1,101,KBS - Zone I - 101,3,Remera Taxi Park-Sonatubes-Rwandex-CBD
-    102,1,102,Kabuga-Mulindi-Remera-Sonatubes-Rwandex-Nyabugogo Taxi Park
+    101,1,101,Remera Taxi Park-Sonatubes-Rwandex-CBD,3,Zone I
     ...(additional routes here)...
-    212,2,212,ROYAL - Zone II - 212,3,St. Joseph-Kicukiro Centre-Sonatubes-Rwandex-Nyabugogo Taxi Park
     """
     from io import StringIO
     return pd.read_csv(StringIO(data))
 
 routes_df = load_route_data()
 
-# --- Fetch Real-Time Weather Data ---
+# --- Fetch Weather Data ---
 def fetch_weather():
-    """Fetch weather data for Kigali using OpenWeather API."""
-    api_key = "your_openweather_api_key"  # Replace with your actual API key
+    api_key = "your_openweather_api_key"
     url = f"https://api.openweathermap.org/data/2.5/weather?q=Kigali&units=metric&appid={api_key}"
     response = requests.get(url)
     if response.status_code == 200:
@@ -45,7 +46,6 @@ def fetch_weather():
 
 # --- Generate Live Traffic Data ---
 def generate_live_data():
-    """Simulate live traffic data with random metrics."""
     route = np.random.choice(routes_df['route_short_name'])
     vehicle_count = np.random.randint(10, 100)
     travel_time = np.random.uniform(10, 60)
@@ -53,9 +53,21 @@ def generate_live_data():
     return {'route': route, 'timestamp': timestamp, 
             'vehicle_count': vehicle_count, 'travel_time': travel_time}
 
-# --- Generate Folium Map with Heatmap & Markers ---
+# --- Predict Traffic Congestion Using Linear Regression ---
+def predict_traffic():
+    data = st.session_state.traffic_data[['vehicle_count', 'travel_time']]
+    if len(data) > 10:
+        X = data[['vehicle_count']]
+        y = data['travel_time']
+        model = LinearRegression().fit(X, y)
+        prediction = model.predict([[80]])  # Predict travel time for vehicle count of 80
+        st.session_state.predicted_data = pd.DataFrame({
+            'Predicted Travel Time': prediction,
+            'Vehicle Count': [80]
+        })
+
+# --- Generate Folium Map with Heatmap ---
 def generate_folium_map(data):
-    """Generate map with congestion heatmap and markers."""
     m = folium.Map(location=[-1.9499, 30.0589], zoom_start=13)
     marker_cluster = MarkerCluster().add_to(m)
 
@@ -65,24 +77,36 @@ def generate_folium_map(data):
         for _, row in data.iterrows()
     ]
 
-    # Add heatmap layer
     HeatMap(heat_data).add_to(m)
 
-    # Add congestion markers
     for _, row in data.iterrows():
         folium.Marker(
-            location=[-1.9499 + np.random.uniform(-0.01, 0.01),
-                      30.0589 + np.random.uniform(-0.01, 0.01)],
+            location=[-1.9499 + np.random.uniform(-0.01, 0.01), 30.0589 + np.random.uniform(-0.01, 0.01)],
             popup=f"Route: {row['route']}<br>Vehicles: {row['vehicle_count']}<br>Travel Time: {row['travel_time']} min",
             icon=folium.Icon(color='red' if row['vehicle_count'] > 50 else 'blue', icon='info-sign')
         ).add_to(marker_cluster)
 
     return m
 
-# --- UI and Layout ---
-st.title("🚦 Kigali Traffic Monitoring and Optimization System")
+# --- Create 3D Route Visualization with Pydeck ---
+def create_3d_map():
+    view_state = pdk.ViewState(
+        latitude=-1.9499, longitude=30.0589, zoom=13, pitch=50
+    )
 
-# Display Weather Information
+    layer = pdk.Layer(
+        "ScatterplotLayer",
+        data=st.session_state.traffic_data,
+        get_position=["longitude", "latitude"],
+        get_color="[200, 30, 0, 160]",
+        get_radius=200,
+    )
+
+    return pdk.Deck(layers=[layer], initial_view_state=view_state)
+
+# --- UI Layout ---
+st.title("🚦 Kigali Traffic Monitoring & Optimization System")
+
 if st.sidebar.button("Fetch Weather"):
     st.session_state.weather_data = fetch_weather()
 
@@ -93,47 +117,35 @@ if st.session_state.weather_data:
     st.sidebar.write(f"💧 **Humidity:** {weather['main']['humidity']}%")
     st.sidebar.write(f"🌬️ **Wind Speed:** {weather['wind']['speed']} m/s")
 
-# Route Selection and Filters
-selected_routes = st.sidebar.multiselect(
-    "Select Routes", routes_df['route_short_name'].unique(), default=[]
-)
+selected_routes = st.sidebar.multiselect("Select Routes", routes_df['route_short_name'].unique(), default=[])
 min_vehicle_count = st.sidebar.slider("Min Vehicle Count", 0, 100, 10)
 max_travel_time = st.sidebar.slider("Max Travel Time (minutes)", 10, 60, 30)
 
-# Generate and Append New Traffic Data
 new_data = generate_live_data()
-st.session_state.traffic_data = pd.concat(
-    [st.session_state.traffic_data, pd.DataFrame([new_data])], ignore_index=True
-).tail(50)
+st.session_state.traffic_data = pd.concat([st.session_state.traffic_data, pd.DataFrame([new_data])], ignore_index=True).tail(50)
 
-# Filter Data Based on User Inputs
 filtered_data = st.session_state.traffic_data[
     (st.session_state.traffic_data['route'].isin(selected_routes)) &
     (st.session_state.traffic_data['vehicle_count'] >= min_vehicle_count) &
     (st.session_state.traffic_data['travel_time'] <= max_travel_time)
 ]
 
-# Display the Live Map with Heatmap
 st.subheader("📍 Live Traffic Map")
 folium_map = generate_folium_map(filtered_data)
 st_folium(folium_map, width=700, height=500)
 
-# Real-Time Plot of Vehicle Count
-st.subheader("📈 Real-Time Vehicle Count per Route")
-fig = px.line(
-    filtered_data, x='timestamp', y='vehicle_count', 
-    title="Vehicle Count Trends", markers=True
-)
+st.subheader("📈 Real-Time Vehicle Count Trends")
+fig = px.line(filtered_data, x='timestamp', y='vehicle_count', title="Real-Time Vehicle Count", markers=True)
 st.plotly_chart(fig, use_container_width=True)
 
-# Alternate Routes Suggestions
-st.sidebar.subheader("🔀 Suggest Alternate Routes")
-selected_route = st.sidebar.selectbox("Select Route", routes_df['route_short_name'])
-st.sidebar.write(f"Alternate routes for {selected_route}:")
-alternate_routes = routes_df[routes_df['route_short_name'] != selected_route]
-st.sidebar.write(alternate_routes[['route_short_name', 'route_long_name']])
+st.subheader("🔮 Predicted Traffic Conditions")
+predict_traffic()
+if not st.session_state.predicted_data.empty:
+    st.write(st.session_state.predicted_data)
 
-# Refresh Logic
+st.subheader("🗺️ 3D Route Visualization")
+st.pydeck_chart(create_3d_map())
+
 refresh_rate = st.sidebar.slider("Refresh Rate (seconds)", 5, 30, 10)
 if st.sidebar.button("Refresh Now"):
     st.experimental_rerun()
