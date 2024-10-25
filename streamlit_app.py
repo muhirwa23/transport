@@ -13,28 +13,29 @@ if 'traffic_data' not in st.session_state:
         'route', 'timestamp', 'latitude', 'longitude', 'vehicle_count', 'event', 'average_speed'
     ])
 
-# --- Load Route Data with Coordinates ---
+# --- Load Real Route Data for Kigali ---
 @st.cache_data
-def load_route_data():
+def load_kigali_routes():
+    # Real routes are simplified here for the demo; replace with actual routes
     routes_data = [
         {
-            "route": "Route A",
+            "route": "Kigali Route 1",
             "coordinates": [
-                [30.0605, -1.9441], [30.0615, -1.9451], [30.0625, -1.9461], [30.0635, -1.9471]
+                [30.0625, -1.9486], [30.0651, -1.9498], [30.0677, -1.9510], [30.0703, -1.9522]
             ],
-            "description": "Test Route A - Sample Path"
+            "description": "Main road between city center and suburbs"
         },
         {
-            "route": "Route B",
+            "route": "Kigali Route 2",
             "coordinates": [
-                [30.0689, -1.9425], [30.0699, -1.9435], [30.0709, -1.9445], [30.0719, -1.9455]
+                [30.0739, -1.9463], [30.0755, -1.9475], [30.0771, -1.9487], [30.0787, -1.9499]
             ],
-            "description": "Test Route B - Sample Path"
+            "description": "Popular route near major commercial areas"
         },
     ]
     return routes_data
 
-routes_df = load_route_data()
+routes_df = load_kigali_routes()
 
 # --- Sidebar for Route Selection and Date Filtering ---
 selected_route = st.sidebar.selectbox("Select a Route", [route["route"] for route in routes_df])
@@ -72,7 +73,7 @@ filtered_data = st.session_state.traffic_data[
     (st.session_state.traffic_data['timestamp'] <= pd.to_datetime(end_date))
 ]
 
-# --- Create 3D Simulation with Actual Routes ---
+# --- Create 3D Map with Actual Routes ---
 def create_3d_simulation():
     view_state = pdk.ViewState(latitude=-1.9499, longitude=30.0589, zoom=13, pitch=50)
 
@@ -132,32 +133,32 @@ st.pydeck_chart(create_3d_simulation())
 
 # --- Dynamic Plotly Plots ---
 if not filtered_data.empty:
-    # Time-Series Plot: Vehicle Count & Average Speed over Time
-    st.subheader("Time-Series of Vehicle Count & Average Speed")
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(x=filtered_data['timestamp'], y=filtered_data['vehicle_count'],
-                             mode='lines+markers', name='Vehicle Count'))
-    fig.add_trace(go.Scatter(x=filtered_data['timestamp'], y=filtered_data['average_speed'],
-                             mode='lines+markers', name='Average Speed'))
-    fig.update_layout(title=f"Traffic Analysis Over Time for {selected_route}", xaxis_title="Time", yaxis_title="Count / Speed")
-    st.plotly_chart(fig)
+    # Traffic Event Timeline
+    st.subheader("Traffic Event Timeline")
+    fig_timeline = px.timeline(filtered_data, x_start="timestamp", x_end="timestamp", y="route",
+                               color="event", title="Traffic Event Timeline by Route")
+    st.plotly_chart(fig_timeline)
 
-    # Event Distribution: Bar Chart
-    st.subheader("Event Distribution")
+    # Event Type Distribution Pie Chart
+    st.subheader("Event Type Distribution")
     event_counts = filtered_data['event'].value_counts()
-    fig2 = px.bar(x=event_counts.index, y=event_counts.values, labels={'x': 'Event Type', 'y': 'Frequency'},
-                  title="Distribution of Events")
-    st.plotly_chart(fig2)
+    fig_pie = px.pie(names=event_counts.index, values=event_counts.values, title="Event Type Distribution")
+    st.plotly_chart(fig_pie)
+
+    # Histogram of Vehicle Count
+    st.subheader("Vehicle Count Distribution")
+    fig_histogram = px.histogram(filtered_data, x="vehicle_count", nbins=20, title="Histogram of Vehicle Counts")
+    st.plotly_chart(fig_histogram)
+
+    # Average Speed Heatmap
+    st.subheader("Average Speed Heatmap")
+    fig_heatmap = px.density_mapbox(filtered_data, lat="latitude", lon="longitude", z="average_speed", radius=10,
+                                    center=dict(lat=-1.9499, lon=30.0589), zoom=12,
+                                    mapbox_style="carto-positron", title="Average Speed Heatmap")
+    st.plotly_chart(fig_heatmap)
 
     # Scatter Plot: Average Speed vs Vehicle Count by Event
     st.subheader("Average Speed vs Vehicle Count by Event Type")
-    fig3 = px.scatter(filtered_data, x="vehicle_count", y="average_speed", color="event",
-                      title="Average Speed vs Vehicle Count", labels={"vehicle_count": "Vehicle Count", "average_speed": "Average Speed (km/h)"})
-    st.plotly_chart(fig3)
-
-    # Heatmap: Traffic Severity on Route
-    st.subheader("Traffic Heatmap for Route Congestion")
-    fig4 = px.density_mapbox(filtered_data, lat="latitude", lon="longitude", z="vehicle_count", radius=10,
-                             center=dict(lat=-1.9499, lon=30.0589), zoom=12,
-                             mapbox_style="carto-positron", title="Traffic Density by Vehicle Count")
-    st.plotly_chart(fig4)
+    fig_scatter = px.scatter(filtered_data, x="vehicle_count", y="average_speed", color="event",
+                             title="Average Speed vs Vehicle Count", labels={"vehicle_count": "Vehicle Count", "average_speed": "Average Speed (km/h)"})
+    st.plotly_chart(fig_scatter)
