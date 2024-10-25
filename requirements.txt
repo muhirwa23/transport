@@ -7,3 +7,4 @@ geopandas==0.13.2
 fiona==1.8.22
 pyproj==3.5.0
 shapely==2.0.1
+folium
