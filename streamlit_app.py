@@ -1,16 +1,16 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import pydeck as pdk  # For 3D visualization
-import plotly.express as px
+import pydeck as pdk
+import plotly.graph_objects as go
 import requests
-import time
 from sklearn.ensemble import RandomForestRegressor
+import time
 
 # --- Initialize Session State ---
 if 'traffic_data' not in st.session_state:
     st.session_state.traffic_data = pd.DataFrame(columns=[
-        'route', 'timestamp', 'latitude', 'longitude', 'vehicle_count', 'event'
+        'route', 'timestamp', 'latitude', 'longitude', 'vehicle_count', 'event', 'average_speed'
     ])
 
 # --- Load Route Data ---
@@ -37,10 +37,11 @@ def load_route_data():
 
 routes_df = load_route_data()
 
-# --- Simulate Live Traffic Data with Multiple Events ---
+# --- Simulate Live Traffic Data ---
 def simulate_event():
     route = np.random.choice(routes_df['route_short_name'])
     vehicle_count = np.random.randint(10, 100)
+    average_speed = np.random.uniform(10, 60)
     latitude, longitude = np.random.uniform(-1.96, -1.93), np.random.uniform(30.05, 30.10)
     event = np.random.choice(['Accident', 'Traffic Jam', 'Closed Road', 'Damaged Road'])
 
@@ -50,27 +51,27 @@ def simulate_event():
         'latitude': latitude,
         'longitude': longitude,
         'vehicle_count': vehicle_count,
-        'event': event
+        'event': event,
+        'average_speed': average_speed
     }
 
-# --- Create 3D Simulation with Enhanced Layer ---
-def create_3d_simulation():
+# --- Create 3D Simulation ---
+def create_3d_simulation(route_suggestions):
     view_state = pdk.ViewState(
         latitude=-1.9499, longitude=30.0589, zoom=13, pitch=50
     )
 
-    # Define color map for events
+    # Color map for events
     color_map = {
-        'Accident': [255, 0, 0],      # Red
-        'Traffic Jam': [255, 165, 0], # Orange
-        'Closed Road': [0, 0, 255],   # Blue
-        'Damaged Road': [128, 128, 128]  # Gray
+        'Accident': [255, 0, 0],
+        'Traffic Jam': [255, 165, 0],
+        'Closed Road': [0, 0, 255],
+        'Damaged Road': [128, 128, 128]
     }
 
-    # Prepare data for scatter layer
     scatter_data = st.session_state.traffic_data.to_dict('records')
-    
-    # Scatter layer to visualize events with colors
+
+    # Scatter layer
     scatter_layer = pdk.Layer(
         "ScatterplotLayer",
         data=scatter_data,
@@ -81,7 +82,7 @@ def create_3d_simulation():
         auto_highlight=True
     )
 
-    # TextLayer to label each event on the map
+    # TextLayer to label events
     text_layer = pdk.Layer(
         "TextLayer",
         data=scatter_data,
@@ -92,45 +93,68 @@ def create_3d_simulation():
         pickable=True
     )
 
-    return pdk.Deck(layers=[scatter_layer, text_layer], initial_view_state=view_state)
+    # Layer for suggested routes
+    route_layer = pdk.Layer(
+        "PathLayer",
+        data=route_suggestions,
+        get_path="path",
+        get_width=5,
+        get_color=[0, 255, 0],
+        width_min_pixels=2
+    )
+
+    return pdk.Deck(layers=[scatter_layer, text_layer, route_layer], initial_view_state=view_state)
+
+# --- Predict Traffic Jam ---
+def predict_traffic_jam():
+    # Mock prediction model
+    model = RandomForestRegressor()
+    model.fit(np.array([[10, 20], [20, 30], [30, 40]]), np.array([0, 1, 1]))  # Example data
+    return model.predict(np.array([[40, 50]]))
 
 # --- User Interface ---
-st.title("🚦 Kigali Traffic Monitoring System with Real-Time 3D Event Simulation")
+st.title("Kigali Transport Optimization Dashboard")
 
-# Add new simulated traffic data to the session state
+# Create statistics cards for real-time data
+col1, col2, col3 = st.columns(3)
+
+with col1:
+    st.metric("Latest Vehicle Count", int(st.session_state.traffic_data['vehicle_count'].iloc[-1]) if not st.session_state.traffic_data.empty else 0)
+with col2:
+    st.metric("Average Speed", f"{st.session_state.traffic_data['average_speed'].mean():.2f} km/h" if not st.session_state.traffic_data.empty else "N/A")
+with col3:
+    st.metric("Traffic Jam Prediction", "Yes" if predict_traffic_jam()[0] > 0 else "No")
+
+# Input for route suggestions
+start_location = st.text_input("Start Location", placeholder="Enter starting point")
+end_location = st.text_input("End Location", placeholder="Enter destination")
+
+# Button to generate suggested routes
+if st.button("Suggest Route"):
+    # Generate mock route suggestions
+    route_suggestions = [
+        {"path": [[30.0589, -1.9499], [30.0590, -1.9500]]},  # Mock path coordinates
+        {"path": [[30.0589, -1.9499], [30.0592, -1.9502]]}   # Mock path coordinates
+    ]
+    
+    # Display the 3D simulation with route suggestions
+    st.pydeck_chart(create_3d_simulation(route_suggestions))
+
+# Simulate traffic data and update the session state
 new_data = simulate_event()
-st.session_state.traffic_data = pd.concat(
-    [st.session_state.traffic_data, pd.DataFrame([new_data])], ignore_index=True
-).tail(100)  # Keep the latest 100 events
+st.session_state.traffic_data = st.session_state.traffic_data.append(new_data, ignore_index=True)
 
-# Display 3D Map Simulation
-st.subheader("🗺️ Real-Time 3D Simulation of Traffic Events")
-st.pydeck_chart(create_3d_simulation())
-
-# Plot Real-Time Vehicle Count Trends
-st.subheader("📈 Real-Time Vehicle Count Trends")
-fig = px.line(
-    st.session_state.traffic_data, 
-    x='timestamp', y='vehicle_count', 
-    title="Vehicle Count over Time", markers=True
-)
-st.plotly_chart(fig, use_container_width=True)
-
-# Predict Traffic Congestion Using Random Forest
-def predict_traffic():
-    data = st.session_state.traffic_data[['vehicle_count']]
-    if len(data) > 10:
-        X = np.array(data.index).reshape(-1, 1)  # Use index as feature
-        y = data['vehicle_count']
-        model = RandomForestRegressor().fit(X, y)
-        prediction = model.predict([[len(data) + 1]])  # Predict next value
-        return prediction[0]
-    return None
-
-st.subheader("🔮 Traffic Prediction")
-prediction = predict_traffic()
-if prediction:
-    st.write(f"Predicted Vehicle Count: {int(prediction)} vehicles")
+# Multi-plot visualization for traffic analysis
+if not st.session_state.traffic_data.empty:
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=st.session_state.traffic_data['timestamp'], 
+                             y=st.session_state.traffic_data['vehicle_count'],
+                             mode='lines+markers', name='Vehicle Count'))
+    fig.add_trace(go.Scatter(x=st.session_state.traffic_data['timestamp'], 
+                             y=st.session_state.traffic_data['average_speed'],
+                             mode='lines+markers', name='Average Speed'))
+    fig.update_layout(title="Traffic Analysis Over Time", xaxis_title="Time", yaxis_title="Count / Speed")
+    st.plotly_chart(fig)
 
 # Refresh the dashboard periodically
 refresh_rate = st.sidebar.slider("Refresh Rate (seconds)", 5, 30, 10)
