@@ -3,9 +3,10 @@ import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
 import plotly.express as px
+import plotly.graph_objects as go
 import folium
 from streamlit_folium import st_folium
-from folium.plugins import MarkerCluster
+from folium.plugins import MarkerCluster, HeatMap
 from io import StringIO
 import time
 
@@ -30,12 +31,10 @@ route_id,agency_id,route_short_name,route_long_name,route_type,route_desc
 def load_route_data():
     return pd.read_csv(StringIO(route_data))
 
-# Call the function
 routes_df = load_route_data()
 
 # --- GENERATE LIVE TRAFFIC DATA ---
 def generate_live_data():
-    """Simulate real-time traffic data with congestion and incidents."""
     np.random.seed(int(datetime.now().timestamp()))
     vehicle_count = np.random.randint(20, 100)
     travel_time = np.random.uniform(5, 25)
@@ -78,7 +77,6 @@ filtered_data = st.session_state.traffic_data[
 ]
 
 def predict_traffic(data, window=3):
-    """Predict future traffic using a simple moving average."""
     data['vehicle_count_pred'] = data['vehicle_count'].rolling(window=window).mean().shift(-1)
     data['congestion_pred'] = data['congestion'].map({"Low": 1, "Moderate": 2, "High": 3}).rolling(window=window).mean().shift(-1)
     data['congestion_pred'] = data['congestion_pred'].round().map({1: "Low", 2: "Moderate", 3: "High"})
@@ -95,24 +93,46 @@ st.metric("Total Incidents Reported", total_incidents)
 st.metric("Average Congestion Level", round(avg_congestion, 2), delta=None)
 
 # --- DISPLAY CHARTS ---
-st.subheader("Live Traffic Data and Predictions")
+col1, col2 = st.columns(2)
 
-vehicle_fig = px.line(filtered_data, x='timestamp', y='vehicle_count', color='route',
-                      title="Vehicle Count Over Time", markers=True)
-vehicle_fig.add_scatter(x=predicted_data['timestamp'], y=predicted_data['vehicle_count_pred'], mode='lines+markers', 
-                        name='Predicted Vehicle Count', line=dict(dash='dash'))
+with col1:
+    st.subheader("Vehicle Count Over Time")
+    vehicle_fig = px.line(filtered_data, x='timestamp', y='vehicle_count', color='route',
+                          title="Vehicle Count Over Time", markers=True)
+    vehicle_fig.add_scatter(x=predicted_data['timestamp'], y=predicted_data['vehicle_count_pred'], mode='lines+markers', 
+                            name='Predicted Vehicle Count', line=dict(dash='dash'))
+    st.plotly_chart(vehicle_fig, use_container_width=True)
 
-congestion_fig = px.line(filtered_data, x='timestamp', y='congestion', color='route',
-                         title="Congestion Level Over Time", markers=True)
-congestion_fig.add_scatter(x=predicted_data['timestamp'], y=predicted_data['congestion_pred'], mode='lines+markers', 
-                           name='Predicted Congestion', line=dict(dash='dash'))
+with col2:
+    st.subheader("Congestion Level Over Time")
+    congestion_fig = px.line(filtered_data, x='timestamp', y='congestion', color='route',
+                             title="Congestion Level Over Time", markers=True)
+    congestion_fig.add_scatter(x=predicted_data['timestamp'], y=predicted_data['congestion_pred'], mode='lines+markers', 
+                               name='Predicted Congestion', line=dict(dash='dash'))
+    st.plotly_chart(congestion_fig, use_container_width=True)
 
-st.plotly_chart(vehicle_fig, use_container_width=True)
-st.plotly_chart(congestion_fig, use_container_width=True)
+# --- ADDITIONAL INSIGHTS ---
+st.subheader("Additional Insights")
+
+col3, col4, col5 = st.columns(3)
+
+with col3:
+    incident_counts = filtered_data['incident'].value_counts().drop("None", errors='ignore')
+    incident_pie = px.pie(values=incident_counts.values, names=incident_counts.index, title="Incident Types Distribution")
+    st.plotly_chart(incident_pie, use_container_width=True)
+
+with col4:
+    travel_time_hist = px.histogram(filtered_data, x='travel_time', title="Travel Time Distribution",
+                                    nbins=20, color='route')
+    st.plotly_chart(travel_time_hist, use_container_width=True)
+
+with col5:
+    congestion_heatmap = px.density_heatmap(filtered_data, x='timestamp', y='route', z='vehicle_count',
+                                            title="Vehicle Count Heatmap", color_continuous_scale='Viridis')
+    st.plotly_chart(congestion_heatmap, use_container_width=True)
 
 # --- DYNAMIC MAP ---
 def generate_random_data():
-    """Generate random data for congestion and accidents."""
     latitudes = np.random.uniform(-1.96, -1.92, 10)
     longitudes = np.random.uniform(29.9, 30.0, 10)
     congestion = np.random.randint(20, 100, 10)
@@ -133,27 +153,23 @@ if 'map_data' not in st.session_state:
     st.session_state.map_data = generate_random_data()
 
 def create_dynamic_map(data):
-    """Create a dynamic Folium map with congestion and accident markers."""
     folium_map = folium.Map(location=[-1.95, 30.06], zoom_start=12)
     marker_cluster = MarkerCluster().add_to(folium_map)
 
     for _, row in data.iterrows():
-        icon_color = "red" if row['accident'] else "blue"
+        color = "red" if row['accident'] else "blue"
+        congestion_level = row['congestion']
+        
+        # Change marker color intensity based on congestion percentage
+        color_intensity = "darkred" if congestion_level > 75 else "orange" if congestion_level > 50 else "green"
+        
         folium.CircleMarker(
             location=[row['latitude'], row['longitude']],
-            radius=5,
-            color=icon_color,
+            radius=7,
+            color=color_intensity,
             fill=True,
-            fill_color=icon_color,
-            fill_opacity=0.6
-        ).add_to(marker_cluster)
-
-        # Tooltip information without pop-ups
-        tooltip_text = f"Route: {row['route']}, Congestion: {row['congestion']}%, Accident: {'Yes' if row['accident'] else 'No'}"
-        folium.Marker(
-            location=[row['latitude'], row['longitude']],
-            tooltip=tooltip_text,
-            icon=folium.Icon(color=icon_color, icon="info-sign")
+            fill_color=color_intensity,
+            fill_opacity=0.7
         ).add_to(marker_cluster)
 
     return folium_map
