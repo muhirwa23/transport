@@ -12,7 +12,6 @@ def load_route_data():
     data = """route_id,agency_id,route_short_name,route_long_name,route_type,route_desc
     101,1,101,KBS - Zone I - 101,3,Remera Taxi Park-Sonatubes-Rwandex-CBD
     102,1,102,Kabuga-Mulindi-Remera-Sonatubes-Rwandex-Nyabugogo Taxi Park
-    ... (shortened for brevity, include your full dataset here)
     212,2,212,ROYAL - Zone II - 212,3,St. Joseph-Kicukiro Centre-Sonatubes-Rwandex-Nyabugogo Taxi Park
     """
     from io import StringIO
@@ -66,7 +65,6 @@ filtered_data = st.session_state.traffic_data[
 
 # --- Display the 3D Map with Traffic Data ---
 st.subheader("Live 3D Traffic Map")
-
 fig = px.scatter_3d(
     filtered_data, 
     x='longitude', y='latitude', z='vehicle_count',
@@ -93,10 +91,25 @@ st.plotly_chart(line_fig, use_container_width=True)
 
 # --- Suggest Alternate Routes ---
 st.sidebar.subheader("Suggest Alternate Routes")
-selected_route = st.sidebar.selectbox("Select Route", routes_df['route_short_name'])
-st.sidebar.write(f"Alternate routes for {selected_route}:")
+selected_route = st.sidebar.selectbox("Select Route for Suggestions", routes_df['route_short_name'])
 alternate_routes = routes_df[routes_df['route_short_name'] != selected_route]
-st.sidebar.write(alternate_routes[['route_short_name', 'route_long_name']])
+st.sidebar.write(f"Alternate routes for {selected_route}:")
+st.sidebar.table(alternate_routes[['route_short_name', 'route_long_name']])
+
+# --- Display Alternate Routes on 3D Map ---
+for _, row in alternate_routes.iterrows():
+    fig.add_trace(
+        go.Scatter3d(
+            x=[30.0589 + np.random.uniform(-0.01, 0.01)],
+            y=[-1.9499 + np.random.uniform(-0.01, 0.01)],
+            z=[np.random.randint(10, 100)],
+            mode='markers',
+            marker=dict(size=8, color='green'),
+            name=row['route_short_name'],
+            text=row['route_long_name']
+        )
+    )
+st.plotly_chart(fig, use_container_width=True)
 
 # --- Refresh Dashboard ---
 refresh_rate = st.sidebar.slider("Refresh Rate (seconds)", 5, 30, 10)
