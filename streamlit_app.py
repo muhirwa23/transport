@@ -1,10 +1,9 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import seaborn as sns
-import matplotlib.pyplot as plt
-import pydeck as pdk
+import plotly.express as px
 import plotly.graph_objects as go
+import pydeck as pdk
 from sklearn.ensemble import RandomForestRegressor
 import time
 
@@ -17,7 +16,6 @@ if 'traffic_data' not in st.session_state:
 # --- Load Route Data with Coordinates ---
 @st.cache_data
 def load_route_data():
-    # Sample routes with actual coordinates for each path point
     routes_data = [
         {
             "route": "Route A",
@@ -32,13 +30,6 @@ def load_route_data():
                 [30.0689, -1.9425], [30.0699, -1.9435], [30.0709, -1.9445], [30.0719, -1.9455]
             ],
             "description": "Test Route B - Sample Path"
-        },
-        {
-            "route": "Route C",
-            "coordinates": [
-                [30.0550, -1.9500], [30.0560, -1.9510], [30.0570, -1.9520], [30.0580, -1.9530]
-            ],
-            "description": "Test Route C - Sample Path"
         },
     ]
     return routes_data
@@ -81,7 +72,6 @@ def create_3d_simulation():
         get_size=16, get_color=[0, 0, 0], pickable=True
     )
 
-    # Route Layer with Actual Coordinates
     route_layers = []
     for route in routes_df:
         route_layer = pdk.Layer(
@@ -119,21 +109,31 @@ with col3:
 # Display Routes on Map
 st.pydeck_chart(create_3d_simulation())
 
+# Simulate New Traffic Data
 new_data = simulate_event()
 st.session_state.traffic_data = st.session_state.traffic_data.append(new_data, ignore_index=True)
 
-# --- Seaborn Visualization: FacetGrid, Swarmplot, and Relplot ---
+# --- Dynamic Plotly Plots ---
 if not st.session_state.traffic_data.empty:
-    st.subheader("Vehicle Count by Event Type")
-    facet_grid_fig = sns.FacetGrid(st.session_state.traffic_data, col="event", height=3, aspect=1)
-    facet_grid_fig.map_dataframe(sns.histplot, x="vehicle_count", kde=True)
-    st.pyplot(facet_grid_fig)
+    # Time-Series Plot: Vehicle Count & Average Speed over Time
+    st.subheader("Time-Series of Vehicle Count & Average Speed")
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=st.session_state.traffic_data['timestamp'], y=st.session_state.traffic_data['vehicle_count'],
+                             mode='lines+markers', name='Vehicle Count'))
+    fig.add_trace(go.Scatter(x=st.session_state.traffic_data['timestamp'], y=st.session_state.traffic_data['average_speed'],
+                             mode='lines+markers', name='Average Speed'))
+    fig.update_layout(title="Traffic Analysis Over Time", xaxis_title="Time", yaxis_title="Count / Speed")
+    st.plotly_chart(fig)
 
-    st.subheader("Swarmplot of Average Speed per Event Type")
-    plt.figure(figsize=(10, 5))
-    swarm_fig = sns.swarmplot(x="event", y="average_speed", data=st.session_state.traffic_data)
-    st.pyplot(swarm_fig.figure)
+    # Event Distribution: Bar Chart
+    st.subheader("Event Distribution")
+    event_counts = st.session_state.traffic_data['event'].value_counts()
+    fig2 = px.bar(x=event_counts.index, y=event_counts.values, labels={'x': 'Event Type', 'y': 'Frequency'},
+                  title="Distribution of Events")
+    st.plotly_chart(fig2)
 
-    st.subheader("Vehicle Count Over Time by Event Type")
-    rel_fig = sns.relplot(x="timestamp", y="vehicle_count", hue="event", kind="line", data=st.session_state.traffic_data, height=5, aspect=2)
-    st.pyplot(rel_fig)
+    # Scatter Plot: Average Speed vs Vehicle Count by Event
+    st.subheader("Average Speed vs Vehicle Count by Event Type")
+    fig3 = px.scatter(st.session_state.traffic_data, x="vehicle_count", y="average_speed", color="event",
+                      title="Average Speed vs Vehicle Count", labels={"vehicle_count": "Vehicle Count", "average_speed": "Average Speed (km/h)"})
+    st.plotly_chart(fig3)
