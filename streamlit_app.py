@@ -50,7 +50,7 @@ def simulate_event():
 # --- Hugging Face Model for Prediction ---
 @st.cache_resource
 def load_hf_model():
-    model = pipeline("text-generation", model="gpt2")
+    model = pipeline("text-generation", model="gpt2", framework="pt")  # Explicitly specify PyTorch
     return model
 
 hf_model = load_hf_model()
