@@ -1,112 +1,90 @@
 import streamlit as st
 import pandas as pd
-from io import StringIO
-import altair as alt
-import plotly.express as px
-import bokeh.plotting as bk
-import geopandas as gpd
-from bokeh.models import HoverTool
 import numpy as np
-import requests
+import geopandas as gpd
+from bokeh.plotting import figure
+from bokeh.models import ColumnDataSource
+from datetime import datetime
+import time
 
-# --- SETTING PAGE CONFIG ---
-st.set_page_config(
-    page_title="Kigali Traffic Optimization",
-    layout="wide",
-    initial_sidebar_state="expanded"
+# --- Data Simulation Setup ---
+def generate_live_data_kigali():
+    """Simulate live traffic data for Kigali city."""
+    np.random.seed(int(datetime.now().timestamp()))
+    routes = [
+        'Kigali-Rubavu', 'Kigali-Muhanga', 'Kigali-Huye', 'Kigali-Nyagatare',
+        'Kigali-Kayonza', 'Kigali-Musanze', 'Kigali-Gatuna', 'Kigali-Bugesera'
+    ]
+    route = np.random.choice(routes)
+    vehicle_count = np.random.randint(10, 150)
+    travel_time = np.random.uniform(10, 60)  # Travel time in minutes
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    return {"timestamp": timestamp, "route": route, "vehicle_count": vehicle_count, "travel_time": travel_time}
+
+# --- Initialize DataFrame for Live Data ---
+if 'kigali_data' not in st.session_state:
+    st.session_state.kigali_data = pd.DataFrame([generate_live_data_kigali() for _ in range(15)])
+
+# --- Sidebar for Route Optimization Section ---
+st.sidebar.header("Kigali City Route Optimization")
+
+# Route Selection Filters
+selected_kigali_routes = st.sidebar.multiselect(
+    "Select Main Kigali Routes", 
+    ['Kigali-Rubavu', 'Kigali-Muhanga', 'Kigali-Huye', 'Kigali-Nyagatare',
+     'Kigali-Kayonza', 'Kigali-Musanze', 'Kigali-Gatuna', 'Kigali-Bugesera'],
+    default=['Kigali-Rubavu', 'Kigali-Huye']
 )
+min_kigali_vehicle_count = st.sidebar.slider("Minimum Vehicle Count", 0, 150, 20)
+max_kigali_travel_time = st.sidebar.slider("Maximum Travel Time (minutes)", 10, 60, 30)
 
-# --- SAMPLE ROUTE DATA ---
-route_data = """
-route_id,agency_id,route_short_name,route_long_name,route_type,route_desc
-101,1,101,KBS - Zone I - 101,3,Remera Taxi Park-Sonatubes-Rwandex-CBD
-102,1,102,KBS - Zone I - 102,3,Kabuga-Mulindi-Remera-Sonatubes-Rwandex Nyabugogo Taxi Park
-103,1,103,KBS - Zone I - 103,3,Rubilizi-Kabeza-Remera-Sonatubes-Rwandex-CBD
-104,1,104,KBS - Zone I - 104,3,Kibaya-Kanombe MH-Airport-Remera-Sonatubes-Rwandex-CBD
-105,1,105,KBS - Zone I - 105,3,Remera Taxi Park-Chez Lando-Kacyiru-NyabugogoTaxi Park
-"""
+refresh_rate_kigali = st.sidebar.slider("Kigali Data Refresh Rate (seconds)", 1, 10, 5, step=1)
+show_kigali_table = st.sidebar.checkbox("Show Raw Data for Kigali")
 
-@st.cache_data
-def load_route_data():
-    return pd.read_csv(StringIO(route_data))
-
-# --- LOAD ROUTES DATA ---
-routes_df = load_route_data()
-
-# --- DISPLAY ROUTE TABLE ---
-st.title("Kigali Traffic Optimization System")
-st.subheader("Available Routes")
-st.dataframe(routes_df, use_container_width=True)
-
-# --- WAZE LIVE MAP EMBED ---
-st.markdown("""
-## Live Traffic Map
-<iframe src="https://embed.waze.com/iframe?zoom=12&lat=-1.934712&lon=29.974184&ct=livemap" 
-width="100%" height="450" allowfullscreen></iframe>
-""", unsafe_allow_html=True)
-
-# --- DUMMY SIMULATION DATA ---
-np.random.seed(42)
-time_range = pd.date_range(start='2024-10-24', periods=100, freq='T')
-traffic_data = pd.DataFrame({
-    'timestamp': time_range,
-    'vehicle_count': np.random.randint(20, 100, size=100),
-    'travel_time': np.random.uniform(5, 25, size=100)
-})
-
-# --- ALTAR CHART FOR TIME SERIES VEHICLE COUNTS ---
-def altair_vehicle_chart(data):
-    chart = alt.Chart(data).mark_line().encode(
-        x='timestamp:T',
-        y='vehicle_count:Q',
-        tooltip=['timestamp:T', 'vehicle_count:Q']
-    ).properties(title='Vehicle Count Over Time')
-    return chart
-
-st.altair_chart(altair_vehicle_chart(traffic_data), use_container_width=True)
-
-# --- PLOTLY REAL-TIME TRAVEL TIME ---
-fig = px.line(traffic_data, x='timestamp', y='travel_time', title="Travel Time Trend")
-st.plotly_chart(fig, use_container_width=True)
-
-# --- BOKEH CONGESTION CHART ---
-def bokeh_congestion_chart(data):
-    p = bk.figure(
-        x_axis_type="datetime", title="Congestion Analysis",
-        plot_width=800, plot_height=400
+# --- Bokeh Plot for Kigali Routes ---
+def bokeh_kigali_chart(data):
+    """Generate a Bokeh chart for live traffic data in Kigali."""
+    source = ColumnDataSource(data)
+    p = figure(
+        title="Live Traffic Data for Kigali City Routes",
+        x_axis_type="datetime",
+        height=400,
+        x_axis_label="Timestamp",
+        y_axis_label="Vehicle Count",
     )
-    p.line(data['timestamp'], data['vehicle_count'], line_width=2)
-    hover = HoverTool(tooltips=[("Time", "@x{%F %T}"), ("Vehicles", "@y")], formatters={"@x": "datetime"})
-    p.add_tools(hover)
+    p.line(x="timestamp", y="vehicle_count", line_width=2, source=source, color="blue", legend_label="Vehicles")
+    p.circle(x="timestamp", y="travel_time", size=8, source=source, color="green", legend_label="Travel Time (min)")
+    p.legend.title = "Metrics"
     return p
 
-bk.show(bokeh_congestion_chart(traffic_data))
+# --- Route Optimization Section in Main App ---
+st.title("Kigali City Route Optimization")
 
-# --- SIMULATION RESULTS AND OPTIMIZATION ---
-st.sidebar.header("Optimization Options")
-route_filter = st.sidebar.selectbox("Select Route", routes_df['route_short_name'])
-traffic_threshold = st.sidebar.slider("Set Congestion Threshold", 0, 100, 50)
+st.markdown("### Live Monitoring of Main Routes in Kigali")
+kigali_chart_placeholder = st.empty()  # Placeholder for the chart
 
-# --- SUGGEST ROUTES BASED ON THRESHOLD ---
-def suggest_alternate_routes(selected_route, threshold):
-    if traffic_data['vehicle_count'].mean() > threshold:
-        st.warning(f"High congestion detected on Route {selected_route}. Suggesting alternate routes...")
-        suggestions = routes_df[routes_df['route_short_name'] != selected_route].head(3)
-        st.table(suggestions)
-    else:
-        st.success(f"Traffic on Route {selected_route} is under control.")
+while True:
+    # Generate and append new simulated data
+    new_kigali_data = generate_live_data_kigali()
+    st.session_state.kigali_data = pd.concat([st.session_state.kigali_data, pd.DataFrame([new_kigali_data])], ignore_index=True)
 
-suggest_alternate_routes(route_filter, traffic_threshold)
+    # Keep the DataFrame size manageable
+    st.session_state.kigali_data = st.session_state.kigali_data.tail(50)
 
-# --- DISPLAY CONGESTION HEATMAP USING GEOPANDAS (DEMO) ---
-st.header("Kigali City Traffic Heatmap (Demo)")
-gdf = gpd.read_file(gpd.datasets.get_path('naturalearth_lowres'))
-ax = gdf[gdf['continent'] == 'Africa'].plot(figsize=(10, 5), edgecolor='black')
-st.pyplot(ax.figure)
+    # Filter the data based on user input
+    filtered_kigali_data = st.session_state.kigali_data[
+        (st.session_state.kigali_data['route'].isin(selected_kigali_routes)) &
+        (st.session_state.kigali_data['vehicle_count'] >= min_kigali_vehicle_count) &
+        (st.session_state.kigali_data['travel_time'] <= max_kigali_travel_time)
+    ]
 
-# --- FOOTER ---
-st.markdown("""
----
-**Developed by Kigali City Transport Team**  
-*For optimal travel routes and live traffic updates*
-""")
+    # Display the chart
+    kigali_chart = bokeh_kigali_chart(filtered_kigali_data)
+    kigali_chart_placeholder.bokeh_chart(kigali_chart, use_container_width=True)
+
+    if show_kigali_table:
+        st.dataframe(filtered_kigali_data)
+
+    # Refresh the dashboard at the user-defined interval
+    time.sleep(refresh_rate_kigali)
+    st.experimental_rerun()
