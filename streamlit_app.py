@@ -90,34 +90,75 @@ with col3:
 # --- 3D Map of Kigali ---
 import streamlit as st
 import plotly.graph_objects as go
+import pandas as pd
+import numpy as np
 
-st.subheader("Traffic Event Tracking in Kigali")
+# Function to simulate fetching new event data
+def fetch_event_data():
+    event_types = ['Traffic Jam', 'Accident', 'Road Break', 'Congestion']
+    num_events = np.random.randint(1, 6)  # Random number of events (1-5)
+    
+    return {
+        'latitude': np.random.uniform(-1.9600, -1.9400, num_events).tolist(),
+        'longitude': np.random.uniform(30.0500, 30.0700, num_events).tolist(),
+        'event_time': [pd.Timestamp.now().strftime("%H:%M:%S")] * num_events,
+        'event_type': np.random.choice(event_types, num_events).tolist()
+    }
 
-fig_map = go.Figure(go.Scattermapbox(
-    lat=st.session_state.event_data['latitude'],
-    lon=st.session_state.event_data['longitude'],
-    mode='markers',
-    marker=go.scattermapbox.Marker(
-        size=10,
-        color='rgb(255,69,0)',  # Orange-red markers
-        opacity=0.7
-    ),
-    text=st.session_state.event_data['event_time'],
-    hoverinfo='text'
-))
+# Initialize Streamlit session state
+if 'event_data' not in st.session_state:
+    st.session_state.event_data = fetch_event_data()
 
+# Title
+st.title("Dynamic Traffic Event Tracking in Kigali")
+
+# Button to refresh events
+if st.button("Refresh Traffic Events"):
+    st.session_state.event_data = fetch_event_data()
+
+# Define color and size based on event type
+marker_color = {
+    'Traffic Jam': 'rgb(255,0,0)',  # Red for traffic jams
+    'Accident': 'rgb(255,69,0)',    # Orange for accidents
+    'Road Break': 'rgb(255,255,0)',  # Yellow for road breaks
+    'Congestion': 'rgb(0,255,0)'     # Green for congestion
+}
+
+# Create the map figure
+fig_map = go.Figure()
+
+# Add markers for each event type
+for i in range(len(st.session_state.event_data['latitude'])):
+    event_type = st.session_state.event_data['event_type'][i]
+    fig_map.add_trace(go.Scattermapbox(
+        lat=[st.session_state.event_data['latitude'][i]],
+        lon=[st.session_state.event_data['longitude'][i]],
+        mode='markers',
+        marker=go.scattermapbox.Marker(
+            size=10,
+            color=marker_color.get(event_type, 'rgb(0,0,255)'),  # Default to blue if unknown
+            opacity=0.7
+        ),
+        text=f"{event_type} at {st.session_state.event_data['event_time'][i]}",
+        hoverinfo='text'
+    ))
+
+# Map layout
 fig_map.update_layout(
     mapbox=dict(
-        style="carto-positron",  # Change to a lighter style
+        style="mapbox://styles/mapbox/streets-v11",  # 3D map style
         center=dict(lat=-1.9499, lon=30.0589),  # Kigali's coordinates
-        zoom=12
+        zoom=12,
+        accesstoken="your_mapbox_access_token",  # Add your Mapbox access token
+        pitch=60,  # Set the pitch for a 3D effect
+        bearing=0,  # Set the bearing angle
     ),
     margin=dict(r=10, l=10, b=10, t=10),
-    title="Live 3D Map of Kigali"
+    title="Live 3D Map of Kigali Traffic Events"
 )
 
+# Display the map
 st.plotly_chart(fig_map, use_container_width=True)
-
 
 # --- Real-Time Vehicle Count Chart ---
 st.subheader("📈 Real-Time Vehicle Count")
