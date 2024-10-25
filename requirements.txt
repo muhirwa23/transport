@@ -6,3 +6,4 @@ plotly==5.6.0
 scipy==1.10.1
 scikit-learn==1.2.1
 transformers==4.28.1
+torch==2.0.1  # Use this if you prefer PyTorch
