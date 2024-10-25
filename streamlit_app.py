@@ -28,8 +28,8 @@ if 'traffic_data' not in st.session_state:
 if 'event_data' not in st.session_state:
     st.session_state.event_data = pd.DataFrame(columns=['latitude', 'longitude', 'event_time'])
 
-# --- Generate Live Data ---
-def generate_live_data():
+# --- Generate Live Traffic Data ---
+def generate_live_traffic_data():
     """Simulate live traffic data."""
     route = np.random.choice(routes_df['route_short_name'])
     vehicle_count = np.random.randint(10, 100)
@@ -51,7 +51,7 @@ def generate_event_data():
     return {'latitude': latitude, 'longitude': longitude, 'event_time': event_time}
 
 # --- Display UI ---
-st.title("Kigali Traffic Monitoring and Optimization System with Event Tracking")
+st.title("Kigali Traffic Monitoring and Optimization System with 3D Event Tracking")
 
 # --- Route Selection ---
 selected_routes = st.sidebar.multiselect(
@@ -61,9 +61,9 @@ min_vehicle_count = st.sidebar.slider("Min Vehicle Count", 0, 100, 10)
 max_travel_time = st.sidebar.slider("Max Travel Time (minutes)", 10, 60, 30)
 
 # --- Generate and Update Traffic Data ---
-new_data = generate_live_data()
+new_traffic_data = generate_live_traffic_data()
 st.session_state.traffic_data = pd.concat(
-    [st.session_state.traffic_data, pd.DataFrame([new_data])], ignore_index=True
+    [st.session_state.traffic_data, pd.DataFrame([new_traffic_data])], ignore_index=True
 ).tail(50)
 
 # --- Generate and Update Event Data ---
@@ -88,22 +88,33 @@ with col3:
     congestion_level = "High" if avg_vehicle_count > 50 else "Low"
     st.metric("Congestion Level", congestion_level)
 
-# --- 3D Map of Kigali with Event Location Tracking ---
-st.subheader("3D Map of Kigali with Event Tracking")
+# --- 3D Event Tracking Map ---
+st.subheader("3D Map of Kigali with Real-Time Event Tracking")
 
-fig_map = px.scatter_mapbox(
-    st.session_state.event_data,
-    lat='latitude',
-    lon='longitude',
-    hover_name='event_time',
-    hover_data={'latitude': False, 'longitude': False},
-    color_discrete_sequence=["red"],
-    zoom=12,
-    height=500,
-    title="Real-Time Event Tracking in Kigali"
+fig_map_3d = go.Figure(data=[go.Scatter3d(
+    x=st.session_state.event_data['longitude'],
+    y=st.session_state.event_data['latitude'],
+    z=[0]*len(st.session_state.event_data),  # Place events on the ground level
+    mode='markers',
+    marker=dict(
+        size=5,
+        color='red',
+    ),
+    text=st.session_state.event_data['event_time'],
+    hoverinfo='text',
+)])
+
+fig_map_3d.update_layout(
+    scene=dict(
+        xaxis_title="Longitude",
+        yaxis_title="Latitude",
+        zaxis=dict(title="Elevation (m)", range=[0, 100], visible=False),
+    ),
+    margin=dict(r=10, l=10, b=10, t=10),
+    title="3D Map of Event Locations in Kigali"
 )
-fig_map.update_layout(mapbox_style="open-street-map")
-st.plotly_chart(fig_map, use_container_width=True)
+
+st.plotly_chart(fig_map_3d, use_container_width=True)
 
 # --- Real-Time Vehicle Count Chart ---
 st.subheader("Real-Time Vehicle Count")
@@ -113,8 +124,8 @@ line_fig = px.line(
 )
 st.plotly_chart(line_fig, use_container_width=True)
 
-# --- Average Travel Time per Route ---
-st.subheader("Average Travel Time per Route")
+# --- Dynamic Average Travel Time per Route ---
+st.subheader("Dynamic Average Travel Time per Route")
 avg_travel_time_fig = px.bar(
     st.session_state.traffic_data.groupby("route")['travel_time'].mean().reset_index(),
     x='route', y='travel_time',
@@ -141,27 +152,6 @@ scatter_fig = px.scatter(
     trendline='ols'
 )
 st.plotly_chart(scatter_fig, use_container_width=True)
-
-# --- Suggest Alternate Routes ---
-st.sidebar.subheader("Suggest Alternate Routes")
-selected_route = st.sidebar.selectbox("Select Route for Suggestions", routes_df['route_short_name'])
-alternate_routes = routes_df[routes_df['route_short_name'] != selected_route]
-st.sidebar.write(f"Alternate routes for {selected_route}:")
-st.sidebar.table(alternate_routes[['route_short_name', 'route_long_name']])
-
-# --- Display Alternate Routes on 3D Map ---
-for _, row in alternate_routes.iterrows():
-    fig_map.add_trace(
-        go.Scattermapbox(
-            lat=[-1.9499 + np.random.uniform(-0.01, 0.01)],
-            lon=[30.0589 + np.random.uniform(-0.01, 0.01)],
-            mode='markers',
-            marker=dict(size=8, color='green'),
-            name=row['route_short_name'],
-            text=row['route_long_name']
-        )
-    )
-st.plotly_chart(fig_map, use_container_width=True)
 
 # --- Refresh Dashboard ---
 refresh_rate = st.sidebar.slider("Refresh Rate (seconds)", 5, 30, 10)
