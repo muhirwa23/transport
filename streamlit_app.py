@@ -81,28 +81,77 @@ def suggest_alternate_routes(route):
     else:
         st.success(f"Traffic on {route} is under control.")
 
-# --- GENERATE DYNAMIC FOLIUM MAP ---
-def generate_folium_map(data):
-    folium_map = folium.Map(location=[-1.9577, 30.1127], zoom_start=12)
+import streamlit as st
+import pandas as pd
+import numpy as np
+import folium
+from streamlit_folium import st_folium
+from folium.plugins import MarkerCluster
+from datetime import datetime, timedelta
+
+# --- Sample Data Simulation ---
+def generate_random_data():
+    """Generate random data for congestion and accidents."""
+    latitudes = np.random.uniform(-1.96, -1.92, 10)  # Latitude range for Kigali
+    longitudes = np.random.uniform(29.9, 30.0, 10)   # Longitude range for Kigali
+    congestion = np.random.randint(20, 100, 10)      # Congestion percentage
+    accident = np.random.choice([0, 1], 10, p=[0.8, 0.2])  # Accident presence
+    routes = np.random.choice(['Route A', 'Route B', 'Route C'], 10)
+    timestamps = [datetime.now() - timedelta(minutes=i) for i in range(10)]
+
+    return pd.DataFrame({
+        'latitude': latitudes,
+        'longitude': longitudes,
+        'congestion': congestion,
+        'accident': accident,
+        'route': routes,
+        'timestamp': timestamps
+    })
+
+# --- Load or Generate Data ---
+if 'map_data' not in st.session_state:
+    st.session_state.map_data = generate_random_data()
+
+# --- Dynamic Map Function ---
+def create_dynamic_map(data):
+    """Create a dynamic Folium map with congestion and accident markers."""
+    # Initialize a Folium map centered around Kigali
+    folium_map = folium.Map(location=[-1.95, 30.06], zoom_start=12)
+
+    # Use a MarkerCluster for better marker management
     marker_cluster = MarkerCluster().add_to(folium_map)
 
+    # Add markers to the map
     for _, row in data.iterrows():
-        popup_info = f"""
-            <b>Route:</b> {row['route']}<br>
-            <b>Vehicles:</b> {row['vehicle_count']}<br>
-            <b>Travel Time:</b> {row['travel_time']:.2f} mins<br>
-            <b>Congestion:</b> {row['congestion']}<br>
-            <b>Incident:</b> {row['incident']}
+        popup_text = f"""
+        <b>Route:</b> {row['route']}<br>
+        <b>Congestion:</b> {row['congestion']}%<br>
+        <b>Accident:</b> {"Yes" if row['accident'] else "No"}<br>
+        <b>Time:</b> {row['timestamp']}
         """
-        icon_color = "green" if row["congestion"] == "Low" else \
-                     "orange" if row["congestion"] == "Moderate" else "red"
+        icon_color = "red" if row['accident'] else "blue"
         folium.Marker(
-            location=[-1.9577 + np.random.uniform(-0.01, 0.01), 30.1127 + np.random.uniform(-0.01, 0.01)],
-            popup=popup_info,
+            location=[row['latitude'], row['longitude']],
+            popup=popup_text,
             icon=folium.Icon(color=icon_color, icon="info-sign")
         ).add_to(marker_cluster)
 
     return folium_map
+
+# --- Streamlit App Layout ---
+st.title("Kigali Traffic Monitoring and Optimization")
+st.header("Live Map with Congestion and Accidents")
+
+# Create and display the dynamic map
+live_map = create_dynamic_map(st.session_state.map_data)
+st_folium(live_map, width=700, height=500)
+
+# --- Refresh Map Data ---
+refresh_rate = st.sidebar.slider("Refresh Rate (seconds)", 5, 30, 10)
+if st.sidebar.button("Refresh Map"):
+    st.session_state.map_data = generate_random_data()
+    st.experimental_rerun()
+
 
 # --- MAIN APPLICATION LOGIC ---
 st.title("Kigali Traffic Optimization System")
