@@ -3,8 +3,9 @@ import pandas as pd
 import numpy as np
 import pydeck as pdk
 import plotly.express as px
-import plotly.graph_objects as go
 from sklearn.linear_model import LinearRegression
+from scipy.stats import gaussian_kde
+from transformers import pipeline
 import time
 
 # --- Initialize Session State ---
@@ -19,6 +20,7 @@ if 'traffic_data' not in st.session_state:
 def load_route_data():
     data = """route_id,agency_id,route_short_name,route_long_name,route_type,route_desc
     101,1,101,Remera Taxi Park-Sonatubes-Rwandex-CBD,3,Zone I
+    102,1,102,Gikondo-CBD-Kigali City,3,Zone II
     ...(more routes here)...
     """
     from io import StringIO
@@ -26,14 +28,15 @@ def load_route_data():
 
 routes_df = load_route_data()
 
-# --- Simulate Live Traffic Data with Severity Level ---
+# --- Simulate Enhanced Live Traffic Data ---
+@st.cache_data
 def simulate_event():
     route = np.random.choice(routes_df['route_short_name'])
-    vehicle_count = np.random.randint(10, 100)
+    vehicle_count = np.random.randint(10, 500)
     latitude, longitude = np.random.uniform(-1.96, -1.93), np.random.uniform(30.05, 30.10)
-    event = np.random.choice(['Accident', 'Traffic Jam', 'Closed Road', 'Damaged Road'])
+    event = np.random.choice(['Accident', 'Traffic Jam', 'Closed Road', 'Damaged Road', 'Road Work', 'Congestion'])
     
-    severity = "Minor" if vehicle_count < 30 else "Moderate" if vehicle_count < 70 else "Severe"
+    severity = "Minor" if vehicle_count < 50 else "Moderate" if vehicle_count < 200 else "Severe"
     return {
         'route': route,
         'timestamp': pd.Timestamp.now(),
@@ -44,96 +47,72 @@ def simulate_event():
         'severity': severity
     }
 
-# --- Create GPS-based Route Simulation ---
-def get_gps_route(start, end, num_points=10):
-    """Simulate GPS waypoints between start and end locations."""
-    lats = np.linspace(start[1], end[1], num_points)
-    lons = np.linspace(start[0], end[0], num_points)
-    return [[lon, lat] for lon, lat in zip(lons, lats)]
+# --- Hugging Face Model for Prediction ---
+@st.cache_resource
+def load_hf_model():
+    model = pipeline("text-generation", model="gpt2")
+    return model
 
-def create_3d_simulation():
-    view_state = pdk.ViewState(
-        latitude=-1.9499, longitude=30.0589, zoom=13, pitch=50
-    )
+hf_model = load_hf_model()
 
-    color_map = {
-        'Accident': [255, 0, 0],          # Red
-        'Traffic Jam': [255, 165, 0],     # Orange
-        'Closed Road': [0, 0, 255],       # Blue
-        'Damaged Road': [128, 128, 128],  # Gray
-    }
-    severity_map = {
-        "Minor": [100, 100, 100],         # Light gray
-        "Moderate": [150, 150, 0],        # Yellow
-        "Severe": [255, 0, 0],            # Red
-    }
+def predict_traffic_trends():
+    if len(st.session_state.traffic_data) > 10:
+        input_text = "Predict traffic for the next hour based on recent events."
+        response = hf_model(input_text, max_length=50, num_return_sequences=1)
+        return response[0]["generated_text"]
+    return "Not enough data to make a prediction."
 
-    scatter_data = st.session_state.traffic_data.to_dict('records')
-
-    # Scatter layer with tooltip and click event
-    scatter_layer = pdk.Layer(
-        "ScatterplotLayer",
-        data=scatter_data,
-        get_position=["longitude", "latitude"],
-        get_color=lambda d: color_map.get(d["event"], severity_map[d["severity"]]),
-        get_radius=300,
-        pickable=True,
-        auto_highlight=True,
-        tooltip={"text": "{route}\nEvent: {event}\nSeverity: {severity}\nVehicle Count: {vehicle_count}"}
-    )
-
-    # Cluster layer for high-density areas
-    cluster_layer = pdk.Layer(
-        "HeatmapLayer",
-        data=scatter_data,
-        get_position=["longitude", "latitude"],
-        opacity=0.9,
-        threshold=0.1,
-        aggregation="SUM",
-        get_weight="vehicle_count",
-    )
-
-    # Display GPS route if an event is selected
-    if st.session_state.selected_event:
-        event = st.session_state.selected_event
-        start = [event["longitude"], event["latitude"]]
-        end = [event["longitude"] + 0.01, event["latitude"] + 0.01]  # Example endpoint
-        
-        # Generate GPS waypoints
-        gps_route = get_gps_route(start, end)
-        
-        path_layer = pdk.Layer(
-            "PathLayer",
-            data=[{"path": gps_route, "color": [0, 255, 0]}],
-            get_path="path",
-            get_color="color",
-            width_scale=10,
-            width_min_pixels=5
-        )
-        layers = [scatter_layer, cluster_layer, path_layer]
+# --- Display KDE Plot ---
+def display_kde_plot():
+    st.subheader("📈 KDE Plot of Vehicle Counts")
+    if len(st.session_state.traffic_data) > 10:
+        vehicle_counts = st.session_state.traffic_data['vehicle_count'].values
+        kde = gaussian_kde(vehicle_counts)
+        x = np.linspace(vehicle_counts.min(), vehicle_counts.max(), 100)
+        fig_kde = px.line(x=x, y=kde(x), title="KDE Plot of Vehicle Count Density")
+        st.plotly_chart(fig_kde, use_container_width=True)
     else:
-        layers = [scatter_layer, cluster_layer]
+        st.write("Not enough data for KDE Plot.")
 
-    return pdk.Deck(layers=layers, initial_view_state=view_state)
-
-# --- Handle Event Clicks and Route Simulation ---
-def on_event_click(event):
-    st.session_state.selected_event = event
-
+# --- Display Suggested Routes ---
+def suggest_routes(event_severity):
+    st.subheader("🚗 Suggested Routes")
+    if event_severity == "Severe":
+        st.write("We suggest alternative routes due to severe traffic on this route.")
+        st.write(routes_df.sample(2))
+    elif event_severity == "Moderate":
+        st.write("Moderate traffic detected; consider using the following routes:")
+        st.write(routes_df.sample(3))
+    else:
+        st.write("Traffic is light, proceed with the selected route.")
+    
 # --- User Interface ---
-st.title("🚦 Kigali Traffic Monitoring System with Real-Time 3D Event Simulation")
+st.title("🚦 Kigali Traffic Monitoring System with Enhanced Data Simulation")
 
-new_data = simulate_event()
-st.session_state.traffic_data = pd.concat(
-    [st.session_state.traffic_data, pd.DataFrame([new_data])], ignore_index=True
-).tail(100)
+# Sidebar: Route Selection
+st.sidebar.header("🚗 Available Routes in Kigali")
+selected_route = st.sidebar.selectbox("Select a route to view traffic events:", options=routes_df['route_short_name'].unique())
 
-# Display 3D Map Simulation
-st.subheader("🗺️ Real-Time 3D Simulation of Traffic Events")
-map_3d = create_3d_simulation()
-st.pydeck_chart(map_3d)
+# Simulate and add new data
+for _ in range(5):  # Increase simulated events for richer demo
+    new_data = simulate_event()
+    st.session_state.traffic_data = pd.concat(
+        [st.session_state.traffic_data, pd.DataFrame([new_data])], ignore_index=True
+    ).tail(500)
 
-# --- KPI Cards ---
+# --- Display KDE Plot ---
+display_kde_plot()
+
+# --- Prediction using Hugging Face Model ---
+st.subheader("🔮 Traffic Prediction")
+hf_prediction = predict_traffic_trends()
+st.write(f"Model Prediction: {hf_prediction}")
+
+# --- Display Suggested Routes ---
+if st.session_state.selected_event:
+    suggest_routes(st.session_state.selected_event['severity'])
+
+# --- Display Traffic KPIs ---
 st.subheader("🚥 Traffic Key Performance Indicators (KPIs)")
 total_events = st.session_state.traffic_data['event'].count()
 avg_vehicle_count = st.session_state.traffic_data['vehicle_count'].mean()
@@ -144,45 +123,12 @@ col1.metric("Total Traffic Events", total_events)
 col2.metric("Average Vehicle Count", f"{avg_vehicle_count:.2f}")
 col3.metric("Most Common Event", most_common_event)
 
-# --- Additional Charts ---
-st.subheader("📊 Detailed Traffic Analysis")
+# --- Main 3D Map ---
+st.subheader("🗺️ Kigali Real-Time 3D Traffic Map")
+main_3d_map = create_main_3d_map(selected_route=selected_route)
+st.pydeck_chart(main_3d_map)
 
-# Vehicle Count Histogram
-st.write("### Vehicle Count Distribution")
-fig_hist = px.histogram(st.session_state.traffic_data, x="vehicle_count", nbins=10, title="Vehicle Count Histogram")
-st.plotly_chart(fig_hist, use_container_width=True)
-
-# Event Type Distribution
-st.write("### Event Type Breakdown")
-fig_pie = px.pie(st.session_state.traffic_data, names="event", title="Event Type Distribution")
-st.plotly_chart(fig_pie, use_container_width=True)
-
-# Real-Time Vehicle Count Trend
-st.write("### Real-Time Vehicle Count Trends")
-fig_line = px.line(
-    st.session_state.traffic_data, 
-    x='timestamp', y='vehicle_count', 
-    title="Vehicle Count over Time", markers=True
-)
-st.plotly_chart(fig_line, use_container_width=True)
-
-# --- Enhanced Prediction Functionality ---
-def predict_traffic():
-    data = st.session_state.traffic_data[['vehicle_count', 'latitude', 'longitude']]
-    if len(data) > 10:
-        X = data[['vehicle_count']]
-        y = data['vehicle_count'].rolling(2).mean().fillna(0)
-        model = LinearRegression().fit(X, y)
-        prediction = model.predict([[80]])  # Predict for a vehicle count of 80
-        return prediction[0]
-    return None
-
-st.subheader("🔮 Traffic Prediction")
-prediction = predict_traffic()
-if prediction:
-    st.write(f"Predicted Vehicle Count: {int(prediction)} vehicles")
-
-# Periodic Refresh
+# --- Real-Time Refresh ---
 refresh_rate = st.sidebar.slider("Refresh Rate (seconds)", 5, 30, 10)
 time.sleep(refresh_rate)
 st.experimental_rerun()
