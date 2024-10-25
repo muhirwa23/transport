@@ -25,6 +25,9 @@ if 'traffic_data' not in st.session_state:
         'route', 'timestamp', 'vehicle_count', 'travel_time', 'latitude', 'longitude'
     ])
 
+if 'event_data' not in st.session_state:
+    st.session_state.event_data = pd.DataFrame(columns=['latitude', 'longitude', 'event_time'])
+
 # --- Generate Live Data ---
 def generate_live_data():
     """Simulate live traffic data."""
@@ -40,8 +43,15 @@ def generate_live_data():
         'latitude': latitude, 'longitude': longitude
     }
 
+def generate_event_data():
+    """Simulate event location tracking data."""
+    latitude = -1.9499 + np.random.uniform(-0.02, 0.02)
+    longitude = 30.0589 + np.random.uniform(-0.02, 0.02)
+    event_time = pd.Timestamp.now()
+    return {'latitude': latitude, 'longitude': longitude, 'event_time': event_time}
+
 # --- Display UI ---
-st.title("Kigali Traffic Monitoring and Optimization System")
+st.title("Kigali Traffic Monitoring and Optimization System with Event Tracking")
 
 # --- Route Selection ---
 selected_routes = st.sidebar.multiselect(
@@ -56,59 +66,57 @@ st.session_state.traffic_data = pd.concat(
     [st.session_state.traffic_data, pd.DataFrame([new_data])], ignore_index=True
 ).tail(50)
 
-# --- Filter Data Based on User Inputs ---
-filtered_data = st.session_state.traffic_data[
-    (st.session_state.traffic_data['route'].isin(selected_routes)) &
-    (st.session_state.traffic_data['vehicle_count'] >= min_vehicle_count) &
-    (st.session_state.traffic_data['travel_time'] <= max_travel_time)
-]
+# --- Generate and Update Event Data ---
+new_event = generate_event_data()
+st.session_state.event_data = pd.concat(
+    [st.session_state.event_data, pd.DataFrame([new_event])], ignore_index=True
+).tail(20)  # Keep only the last 20 events for tracking
 
 # --- KPI Cards ---
 st.header("Key Performance Indicators")
 col1, col2, col3 = st.columns(3)
 
 with col1:
-    avg_vehicle_count = filtered_data['vehicle_count'].mean() if not filtered_data.empty else 0
+    avg_vehicle_count = st.session_state.traffic_data['vehicle_count'].mean() if not st.session_state.traffic_data.empty else 0
     st.metric("Average Vehicle Count", f"{avg_vehicle_count:.2f}")
 
 with col2:
-    avg_travel_time = filtered_data['travel_time'].mean() if not filtered_data.empty else 0
+    avg_travel_time = st.session_state.traffic_data['travel_time'].mean() if not st.session_state.traffic_data.empty else 0
     st.metric("Average Travel Time (min)", f"{avg_travel_time:.2f}")
 
 with col3:
     congestion_level = "High" if avg_vehicle_count > 50 else "Low"
     st.metric("Congestion Level", congestion_level)
 
-# --- Dynamic 3D Map with Traffic Data ---
-st.subheader("Live 3D Traffic Map")
-fig = px.scatter_3d(
-    filtered_data, 
-    x='longitude', y='latitude', z='vehicle_count',
-    color='vehicle_count',
-    size='travel_time',
-    hover_data=['route', 'timestamp', 'vehicle_count', 'travel_time'],
-    color_continuous_scale=px.colors.sequential.Plasma,
-    title="Traffic Congestion by Route"
+# --- 3D Map of Kigali with Event Location Tracking ---
+st.subheader("3D Map of Kigali with Event Tracking")
+
+fig_map = px.scatter_mapbox(
+    st.session_state.event_data,
+    lat='latitude',
+    lon='longitude',
+    hover_name='event_time',
+    hover_data={'latitude': False, 'longitude': False},
+    color_discrete_sequence=["red"],
+    zoom=12,
+    height=500,
+    title="Real-Time Event Tracking in Kigali"
 )
-fig.update_layout(scene=dict(
-    xaxis_title='Longitude',
-    yaxis_title='Latitude',
-    zaxis_title='Vehicle Count'
-))
-st.plotly_chart(fig, use_container_width=True)
+fig_map.update_layout(mapbox_style="open-street-map")
+st.plotly_chart(fig_map, use_container_width=True)
 
 # --- Real-Time Vehicle Count Chart ---
 st.subheader("Real-Time Vehicle Count")
 line_fig = px.line(
-    filtered_data, x='timestamp', y='vehicle_count', 
+    st.session_state.traffic_data, x='timestamp', y='vehicle_count', 
     title="Real-Time Vehicle Count per Route", markers=True
 )
 st.plotly_chart(line_fig, use_container_width=True)
 
-# --- Average Travel Time per Route (Dynamic Bar Chart) ---
-st.subheader("Dynamic Average Travel Time per Route")
+# --- Average Travel Time per Route ---
+st.subheader("Average Travel Time per Route")
 avg_travel_time_fig = px.bar(
-    filtered_data.groupby("route")['travel_time'].mean().reset_index(),
+    st.session_state.traffic_data.groupby("route")['travel_time'].mean().reset_index(),
     x='route', y='travel_time',
     title="Dynamic Average Travel Time per Route",
     labels={'travel_time': 'Average Travel Time (minutes)'}
@@ -118,7 +126,7 @@ st.plotly_chart(avg_travel_time_fig, use_container_width=True)
 # --- Vehicle Count Distribution ---
 st.subheader("Vehicle Count Distribution")
 vehicle_count_hist = px.histogram(
-    filtered_data, x='vehicle_count', nbins=10,
+    st.session_state.traffic_data, x='vehicle_count', nbins=10,
     title="Vehicle Count Distribution",
     labels={'vehicle_count': 'Number of Vehicles'}
 )
@@ -127,7 +135,7 @@ st.plotly_chart(vehicle_count_hist, use_container_width=True)
 # --- Travel Time vs Vehicle Count ---
 st.subheader("Travel Time vs Vehicle Count")
 scatter_fig = px.scatter(
-    filtered_data, x='vehicle_count', y='travel_time',
+    st.session_state.traffic_data, x='vehicle_count', y='travel_time',
     title="Travel Time vs Vehicle Count",
     labels={'vehicle_count': 'Vehicle Count', 'travel_time': 'Travel Time (minutes)'},
     trendline='ols'
@@ -143,18 +151,17 @@ st.sidebar.table(alternate_routes[['route_short_name', 'route_long_name']])
 
 # --- Display Alternate Routes on 3D Map ---
 for _, row in alternate_routes.iterrows():
-    fig.add_trace(
-        go.Scatter3d(
-            x=[30.0589 + np.random.uniform(-0.01, 0.01)],
-            y=[-1.9499 + np.random.uniform(-0.01, 0.01)],
-            z=[np.random.randint(10, 100)],
+    fig_map.add_trace(
+        go.Scattermapbox(
+            lat=[-1.9499 + np.random.uniform(-0.01, 0.01)],
+            lon=[30.0589 + np.random.uniform(-0.01, 0.01)],
             mode='markers',
             marker=dict(size=8, color='green'),
             name=row['route_short_name'],
             text=row['route_long_name']
         )
     )
-st.plotly_chart(fig, use_container_width=True)
+st.plotly_chart(fig_map, use_container_width=True)
 
 # --- Refresh Dashboard ---
 refresh_rate = st.sidebar.slider("Refresh Rate (seconds)", 5, 30, 10)
