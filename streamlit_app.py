@@ -143,7 +143,7 @@ st.title("Kigali Traffic Monitoring and Optimization")
 st.header("Live Map with Congestion and Accidents")
 
 # Create and display the dynamic map
-live_map = create_dynamic_map(st.session_state.map_data)
+live_map = create_dynamic_map(st.session_state.map_data)  # Correct function call
 st_folium(live_map, width=700, height=500)
 
 # --- Refresh Map Data ---
@@ -151,6 +151,7 @@ refresh_rate = st.sidebar.slider("Refresh Rate (seconds)", 5, 30, 10)
 if st.sidebar.button("Refresh Map"):
     st.session_state.map_data = generate_random_data()
     st.experimental_rerun()
+
 
 
 # --- MAIN APPLICATION LOGIC ---
